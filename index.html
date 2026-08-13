@@ -204,8 +204,27 @@
 const monday = window.mondaySdk();
 monday.setApiVersion("2023-10");
 
+function withTimeout(promise, ms, msg) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms))
+  ]);
+}
+
 async function mondayApi(query, variables) {
-  const res = await monday.api(query, { variables });
+  console.log('mondayApi →', query.split('\n')[1] ? query.trim().slice(0, 60) : query, variables);
+  let res;
+  try {
+    res = await withTimeout(
+      monday.api(query, { variables }),
+      15000,
+      "monday.com n'a pas répondu après 15 secondes (délai dépassé). Cause la plus fréquente : les permissions boards:read / boards:write ne sont pas accordées, ou l'app doit être réinstallée après leur ajout. Vérifiez le Developer Center → Permissions, puis réinstallez l'app."
+    );
+  } catch (timeoutErr) {
+    console.error('monday API timeout', timeoutErr.message);
+    throw timeoutErr;
+  }
+  console.log('mondayApi ← réponse reçue', res);
   if (res.errors && res.errors.length) {
     const msg = res.errors.map(e => e.message).join('; ');
     console.error('monday API error', msg, res.errors);
