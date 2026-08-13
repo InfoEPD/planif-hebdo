@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Planification chantier — Menuisiers</title>
+<script src="https://cdn.monday.com/sdk/monday-sdk-js.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --blue: #225091; --blue-bg:#dbe7fb; --blue-text:#17325c;
+    --green:#037f4c; --green-bg:#dcf5e6; --green-text:#04532f;
+    --cyan:#007eb5; --cyan-bg:#d9f2fb; --cyan-text:#04435c;
+    --gray:#9aadbd; --gray-bg:#eceef1; --gray-text:#4b5563;
+    --border:#e1e4e8; --bg:#f7f8fa; --accent:#ff6d3b; --danger:#df2f4a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#1a1a1a; }
+  #app { display:flex; flex-direction:column; height:100vh; }
+
+  /* Header */
+  #header { display:flex; align-items:center; gap:12px; padding:6px 12px; background:#fff; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  #header h1 { font-size:13px; font-weight:700; margin:0; white-space:nowrap; }
+  #weeknav { display:flex; align-items:center; gap:6px; margin-left:auto; }
+  #weeknav button { border:1px solid var(--border); background:#fff; border-radius:5px; padding:3px 8px; cursor:pointer; font-size:12px; }
+  #weeknav button:hover { background:#f0f1f3; }
+  #weeklabel { font-size:12px; font-weight:600; min-width:180px; text-align:center; }
+  #stats { display:flex; gap:10px; font-size:11px; color:#57606a; }
+  #stats b { color:#1a1a1a; }
+  .conflict-stat { color: var(--danger); font-weight:600; }
+
+  /* Legend */
+  #legend { display:flex; gap:10px; padding:3px 12px; background:#fff; border-bottom:1px solid var(--border); font-size:10px; color:#57606a; align-items:center; flex-wrap:wrap; line-height:1.3; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:3px; }
+  .dot.avail { background:#00c875; } .dot.assigned { background:#ff5ac4; } .dot.absent { background:#e2445c; }
+
+  /* Body layout */
+  #body { flex:1; display:flex; overflow:hidden; }
+
+  /* Sidebar */
+  #sidebar { width:190px; min-width:190px; border-right:1px solid var(--border); background:#fff; display:flex; flex-direction:column; overflow:hidden; }
+  #sidebar-header { padding:6px 8px 4px; }
+  #sidebar-header input { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:5px; font-size:11px; }
+  #emp-count { font-size:10px; color:#8a919b; padding:1px 8px 4px; }
+  #emp-list { flex:1; overflow-y:auto; padding:0 7px 7px; }
+  .emp-card { display:flex; align-items:center; gap:5px; padding:4px 6px; margin-bottom:4px; border-radius:6px; border:1px solid; cursor:grab; font-size:11px; position:relative; }
+  .emp-card:active { cursor:grabbing; opacity:0.6; }
+  .emp-name { font-weight:600; flex:1; line-height:1.15; }
+  .emp-titre { font-size:9.5px; opacity:0.75; display:block; font-weight:400; }
+  .emp-badge { font-size:9.5px; font-weight:700; background:rgba(0,0,0,0.08); border-radius:10px; padding:1px 5px; }
+  .emp-warn { color: var(--danger); font-size:11px; }
+  .emp-days { display:flex; gap:2px; margin-top:3px; }
+  .emp-day-dot { width:7px; height:7px; border-radius:50%; display:inline-block; background:#c4c4c4; }
+  .emp-day-dot.avail { background:#00c875; }
+  .emp-day-dot.assigned { background:#ff5ac4; }
+  .emp-day-dot.absent { background:#e2445c; }
+
+  .cat-lead { background:var(--green-bg); border-color:var(--green); color:var(--green-text); }
+  .cat-crew { background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text); }
+  .cat-autre { background:var(--gray-bg); border-color:var(--gray); color:var(--gray-text); }
+
+  .day-cell { position:relative; }
+  .truck-badge { position:absolute; bottom:2px; right:3px; font-size:10px; line-height:1; cursor:default; background:#fff; border-radius:3px; padding:0 1px; box-shadow:0 0 0 1px #fff; }
+  .lift-badge { position:absolute; bottom:2px; right:3px; font-size:10px; line-height:1; cursor:default; background:#fff; border-radius:3px; padding:0 1px; box-shadow:0 0 0 1px #fff; }
+  .truck-badge.with-lift { right:24px; }
+
+  /* Grid */
+  #grid-wrap { flex:1; overflow:auto; position:relative; }
+  #grid-search { padding:4px 12px; background:var(--bg); position:sticky; left:0; display:flex; align-items:center; gap:10px; }
+  #grid-search input { padding:4px 8px; border:1px solid var(--border); border-radius:5px; font-size:11px; width:200px; }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; min-width:820px; table-layout:fixed; }
+  table.grid thead th { position:sticky; top:0; background:#fff; z-index:3; border-bottom:1px solid var(--border); padding:5px 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.02em; color:#57606a; text-align:left; }
+  table.grid thead th.cp-col { position:sticky; left:0; top:0; z-index:6; width:80px; min-width:80px; max-width:80px; }
+  table.grid thead th.comment-col { position:sticky; left:80px; top:0; z-index:5; width:150px; min-width:150px; max-width:150px; }
+  table.grid thead th.proj-col { position:sticky; left:230px; top:0; z-index:4; width:150px; min-width:150px; max-width:150px; }
+  table.grid tbody td.cp-cell { position:sticky; left:0; background:#fff; z-index:3; border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:5px 6px; vertical-align:top; width:80px; min-width:80px; max-width:80px; font-size:10.5px; font-weight:600; line-height:1.25; }
+  table.grid tbody td.comment-cell { position:sticky; left:80px; background:#fff; z-index:2; border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:3px; vertical-align:top; width:150px; min-width:150px; max-width:150px; }
+  table.grid tbody td.proj-cell { position:sticky; left:230px; background:#fff; z-index:1; border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:5px 6px; vertical-align:top; width:150px; min-width:150px; max-width:150px; }
+  table.grid tbody td.day-cell { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:3px; vertical-align:top; width:100px; min-width:100px; }
+  table.grid tbody tr:hover td.cp-cell, table.grid tbody tr:hover td.comment-cell, table.grid tbody tr:hover td.proj-cell, table.grid tbody tr:hover td.day-cell { background:#fbfbfc; }
+  .comment-input { width:100%; min-height:40px; resize:vertical; border:1px solid transparent; border-radius:4px; padding:3px 4px; font-size:10.5px; font-family:inherit; line-height:1.3; color:#3a3f45; background:transparent; }
+  .comment-input:hover { border-color:var(--border); }
+  .comment-input:focus { outline:none; border-color:var(--accent); background:#fff; }
+  .comment-input::placeholder { color:#b0b6bd; }
+  .comment-input.has-text { background:#fffbe6; }
+  .comment-input.has-text:focus { background:#fff; }
+  td.day-cell.drag-over { background:#fff7ed !important; outline:2px dashed var(--accent); outline-offset:-2px; }
+
+  .proj-name-row { display:flex; align-items:flex-start; justify-content:space-between; gap:4px; }
+  .proj-name { font-weight:700; font-size:11px; margin-bottom:1px; line-height:1.25; }
+  .proj-name a { color:inherit; text-decoration:none; }
+  .proj-name a:hover { text-decoration:underline; }
+  .proj-meta { font-size:9.5px; color:#8a919b; line-height:1.3; }
+  .proj-toggle { border:1px solid var(--border); background:#fff; border-radius:4px; font-size:9px; padding:1px 4px; cursor:pointer; color:#57606a; white-space:nowrap; flex-shrink:0; }
+  .proj-toggle:hover { background:#f0f1f3; }
+
+  .day-inner { min-height:26px; display:flex; flex-wrap:wrap; gap:3px; align-content:flex-start; }
+  .chip { display:flex; align-items:center; gap:3px; padding:2px 5px; border-radius:5px; border:1px solid; font-size:10px; cursor:grab; white-space:nowrap; }
+  .chip.conflict { box-shadow: 0 0 0 2px var(--danger); }
+  .chip .x { cursor:pointer; opacity:0.6; font-weight:700; padding:0 1px; }
+  .chip .x:hover { opacity:1; color:var(--danger); }
+  .chip a { color:inherit; text-decoration:none; }
+
+  #inactive-wrap { border-top:1px solid var(--border); background:#fff; padding:6px 12px 10px; }
+  #inactive-wrap summary { cursor:pointer; font-size:11px; font-weight:600; color:#57606a; padding:3px 0; }
+  .inactive-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 7px; border-radius:5px; background:var(--gray-bg); margin-top:5px; font-size:11px; }
+  .inactive-row .name { font-weight:600; }
+  .inactive-row .meta { color:#8a919b; font-size:9.5px; }
+
+  #emp-complete-wrap { margin-top:6px; border-top:1px dashed var(--border); padding-top:6px; }
+  #emp-complete-wrap summary { cursor:pointer; font-size:10.5px; font-weight:600; color:#8a919b; padding:2px 0; }
+  #emp-complete-wrap .emp-card { opacity:0.75; }
+
+  .chip-km { font-size:9px; font-weight:700; color:#57606a; }
+  .chip-km.far { color: var(--danger); }
+  .chip-km.estimate { font-style: italic; opacity: 0.85; }
+
+  .holiday-toggle { display:flex; align-items:center; gap:2px; font-size:8.5px; font-weight:400; text-transform:none; margin-top:2px; cursor:pointer; color:#57606a; }
+  .holiday-toggle input { width:9px; height:9px; margin:0; cursor:pointer; }
+  th.is-holiday { background:#fff2ec !important; }
+
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#1a1a1a; color:#fff; padding:8px 16px; border-radius:8px; font-size:12px; display:none; z-index:50; max-width:80%; }
+  #overlay { position:fixed; inset:0; background:rgba(255,255,255,0.7); display:flex; align-items:center; justify-content:center; font-size:13px; color:#57606a; z-index:100; }
+  #overlay.hidden { display:none; }
+
+  #confirm-modal { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:200; }
+  #confirm-modal.hidden { display:none; }
+  .confirm-box { background:#fff; border-radius:10px; padding:18px 20px; box-shadow:0 8px 30px rgba(0,0,0,0.2); max-width:320px; text-align:center; }
+  .confirm-box p { font-size:13px; margin:0 0 14px; color:#1a1a1a; }
+  .confirm-actions { display:flex; gap:8px; justify-content:center; }
+  .confirm-actions button { border:1px solid var(--border); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer; background:#fff; }
+  .confirm-actions button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .confirm-actions button:hover { opacity:0.9; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>🪚 Planification chantier — Menuisiers</h1>
+    <div id="stats">
+      <div><b id="stat-projects">0</b> projets actifs</div>
+      <div><b id="stat-inactive">0</b> sans besoin de M.O.</div>
+      <div><b id="stat-employees">0</b> menuisiers actifs</div>
+      <div class="conflict-stat" id="stat-conflicts" style="display:none;"></div>
+    </div>
+    <div id="weeknav">
+      <button id="btn-prev">◀</button>
+      <button id="btn-today">Aujourd'hui</button>
+      <div id="weeklabel"></div>
+      <button id="btn-next">▶</button>
+      <button id="btn-duplicate" title="Copier toutes les assignations de la semaine affichée vers la semaine suivante">⧉ Dupliquer → sem. suivante</button>
+    </div>
+  </div>
+  <div id="legend">
+    <span><span class="dot" style="background:var(--green)"></span>Contremaître / Contremaître+ / Représentant désigné</span>
+    <span><span class="dot" style="background:var(--blue)"></span>Apprenti / Compagnon / Payé contremaitre</span>
+    <span><span class="dot" style="background:var(--gray)"></span>Autre</span>
+    <span style="margin-left:10px; padding-left:10px; border-left:1px solid var(--border);">Pastilles Monday : <span class="dot avail"></span>Disponible <span class="dot assigned"></span>Assigné <span class="dot absent"></span>Absent</span>
+    <span style="margin-left:auto;">Glissez un menuisier vers une case, ou glissez une étiquette vers un autre chantier pour la déplacer (Lundi = propose toute la semaine). × pour retirer. ⏸ = sans besoin de M.O. Case "Férié" en haut de colonne. KM = distance routière réelle (rouge ≥ 65km) ; KM* en italique = estimation. 🚚 = camion actif présent (× N si plusieurs). 🏗️ = équipement de levage actif présent (× N si plusieurs). Un avertissement s'affiche si l'employé est déjà affecté ailleurs ce jour-là (l'affectation est faite quand même).</span>
+  </div>
+  <div id="body">
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <input type="text" id="emp-search" placeholder="Rechercher un menuisier…">
+      </div>
+      <div id="emp-count"></div>
+      <div id="emp-list"></div>
+    </div>
+    <div id="grid-wrap">
+      <div id="grid-search">
+        <input type="text" id="proj-search" placeholder="Rechercher un projet…">
+      </div>
+      <table class="grid" id="grid-table">
+        <thead><tr id="grid-head"></tr></thead>
+        <tbody id="grid-body"></tbody>
+      </table>
+      <details id="inactive-wrap">
+        <summary>Projets sans besoin de main-d'œuvre actuellement (<span id="inactive-count">0</span>)</summary>
+        <div id="inactive-list"></div>
+      </details>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="overlay"><div>Chargement des données Monday…</div></div>
+<div id="confirm-modal" class="hidden">
+  <div class="confirm-box">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="confirm-no">Non</button>
+      <button id="confirm-yes" class="primary">Oui</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Planification chantier — version "App native monday.com" (Board View)
+   Contrairement à la version Cowork, cette page ne dépend d'AUCUN
+   backend : elle tourne dans l'iframe de monday.com et utilise
+   monday-sdk-js pour parler directement à l'API GraphQL v2 de monday,
+   authentifiée automatiquement comme l'utilisateur connecté.
+   ===================================================================== */
+
+const monday = window.mondaySdk();
+monday.setApiVersion("2023-10");
+
+function withTimeout(promise, ms, msg) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms))
+  ]);
+}
+
+async function mondayApi(query, variables) {
+  console.log('mondayApi →', query.split('\n')[1] ? query.trim().slice(0, 60) : query, variables);
+  let res;
+  try {
+    res = await withTimeout(
+      monday.api(query, { variables }),
+      15000,
+      "monday.com n'a pas répondu après 15 secondes (délai dépassé). Cause la plus fréquente : les permissions boards:read / boards:write ne sont pas accordées, ou l'app doit être réinstallée après leur ajout. Vérifiez le Developer Center → Permissions, puis réinstallez l'app."
+    );
+  } catch (timeoutErr) {
+    console.error('monday API timeout', timeoutErr.message);
+    throw timeoutErr;
+  }
+  console.log('mondayApi ← réponse reçue', res);
+  if (res.errors && res.errors.length) {
+    const msg = res.errors.map(e => e.message).join('; ');
+    console.error('monday API error', msg, res.errors);
+    throw new Error(msg);
+  }
+  return res.data;
+}
+
+// Fragment générique réutilisé pour lire n'importe quel type de colonne :
+// - text/value couvrent la quasi-totalité des types (texte, statut, date, long_text, numérique...)
+// - le fragment typé BoardRelationValue donne les items liés AVEC leur board d'origine,
+//   ce qui est nécessaire pour désambiguïser les colonnes "connect boards" reliées à plusieurs tableaux.
+const COLVAL_FRAGMENT = `id text value ... on BoardRelationValue { linked_items { id name board { id } } }`;
+
+async function fetchAllItems(boardId, { columnIds = [], rules = null, limit = 500 } = {}) {
+  const query = `
+    query ($boardId: [ID!], $limit: Int, $cursor: String, $columnIds: [String!], $queryParams: ItemsQuery) {
+      boards(ids: $boardId) {
+        items_page(limit: $limit, cursor: $cursor, query_params: $queryParams) {
+          cursor
+          items {
+            id
+            name
+            column_values(ids: $columnIds) { ${COLVAL_FRAGMENT} }
+          }
+        }
+      }
+    }`;
+  let all = [];
+  let cursor = null;
+  let first = true;
+  do {
+    const variables = {
+      boardId: [String(boardId)],
+      limit,
+      cursor,
+      columnIds,
+      queryParams: first && rules ? { rules } : null
+    };
+    const data = await mondayApi(query, variables);
+    const page = data.boards[0].items_page;
+    all = all.concat(page.items);
+    cursor = page.cursor;
+    first = false;
+  } while (cursor);
+  return all;
+}
+
+async function fetchItemsByIds(ids, columnIds) {
+  if (!ids.length) return [];
+  const query = `
+    query ($ids: [ID!], $columnIds: [String!]) {
+      items(ids: $ids) { id column_values(ids: $columnIds) { ${COLVAL_FRAGMENT} } }
+    }`;
+  const data = await mondayApi(query, { ids, columnIds });
+  return data.items || [];
+}
+
+// Convertit le tableau column_values renvoyé par l'API en objet indexé par id de colonne,
+// avec .text (texte affiché), .value (JSON brut) et .linked (items liés normalisés {id,name,board}).
+function cvIndex(item) {
+  const map = {};
+  (item.column_values || []).forEach(cv => {
+    map[cv.id] = {
+      text: cv.text,
+      value: cv.value,
+      linked: (cv.linked_items || []).map(li => ({ id: String(li.id), name: li.name, board: li.board ? { id: String(li.board.id) } : null }))
+    };
+  });
+  return map;
+}
+
+async function mondayCreateItem(boardId, name, columnValues) {
+  const query = `mutation ($boardId: ID!, $name: String!, $columnValues: JSON) {
+    create_item(board_id: $boardId, item_name: $name, column_values: $columnValues) { id }
+  }`;
+  const data = await mondayApi(query, { boardId: String(boardId), name, columnValues: JSON.stringify(columnValues) });
+  return String(data.create_item.id);
+}
+async function mondayChangeColumns(boardId, itemId, columnValues) {
+  const query = `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+    change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
+  }`;
+  await mondayApi(query, { boardId: String(boardId), itemId: String(itemId), columnValues: JSON.stringify(columnValues) });
+}
+async function mondayDeleteItem(itemId) {
+  const query = `mutation ($itemId: ID!) { delete_item(item_id: $itemId) { id } }`;
+  await mondayApi(query, { itemId: String(itemId) });
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  let i = 0;
+  async function next() {
+    if (i >= items.length) return;
+    const idx = i++;
+    await worker(items[idx]);
+    return next();
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, next));
+}
+
+const EMPLOYEES_BOARD = 8371777574;
+const PROJECTS_BOARD = 8371776057;
+const PLANNING_BOARD = 18426416285;
+const ABSENCES_BOARD = 9761392463;
+const HOLIDAYS_BOARD = 18426426760;
+
+const COL_PROJET = 'board_relation_mm66kzga';
+const COL_DATE = 'date_mm66w0ga';
+const COL_MENUISIERS = 'board_relation_mm66fec0';
+
+const LABOR_COL = 'color_mm665ms5'; // Macro Projets: "Main-d'œuvre requise"
+const LABOR_ACTIVE_LABEL = 'Active';
+const LABOR_INACTIVE_LABEL = "Inactive (M.O. terminée)";
+const COMMENT_COL = 'long_text_mm66vhva'; // Macro Projets: "Commentaire planification"
+
+const ABS_EMP_COL = 'board_relation_mkw51g49';
+const ABS_STATUS_COL = 'color_mkw51e15';
+const ABS_RANGE_COL = 'timerange_mkzj1td5';
+const ABS_BLOCKING_IDS = [1, 2]; // "Traitée", "Acceptée 📱"
+
+const HOLIDAY_DATE_COL = 'date_mm66qb31';
+
+const PROJ_ADDR_COL = 'lieu__1'; // Adresse du projet (Macro Projets)
+const EMP_ADDR_COL = 'lieu_mkmxm4z'; // Adresse complète (Employés)
+const FAR_KM_THRESHOLD = 65;
+
+const DISTANCES_BOARD = 18426435716; // 🚗 Distances routières - Menuisiers
+const DIST_EMP_COL = 'text_mm66z9bc';
+const DIST_JSON_COL = 'long_text_mm668qje';
+const DIST_DATE_COL = 'date_mm66n8s0';
+
+const EQUIPMENT_BOARD = 8478346039; // 🚚 Équipement roulant
+const EQUIP_STATUS_COL = 'color_mm0vb825'; // État
+const EQUIP_STATUS_ACTIVE_INDEX = 1; // label "Actif"
+const EQUIP_EMP_COL = 'board_relation_mm0vnz4x'; // lien vers Employés
+
+const LIFT_BOARD = 8478280754; // 🏗️ Équipements de levage
+const LIFT_STATUS_COL = 'color_mm0cjm1n'; // Actif
+const LIFT_STATUS_ACTIVE_INDEX = 1; // label "Actif"
+const LIFT_EMP_COL = 'board_relation_mm0cqnyv'; // lien vers Employés
+
+const AVAIL_COLS = ['color_mm66n2nb','color_mm66ppya','color_mm66aw5r','color_mm66ewn6','color_mm66dtnc']; // Lun..Ven sur Employés
+
+const EMP_URL = id => `https://entreprisesphilippedenis.monday.com/boards/${EMPLOYEES_BOARD}/pulses/${id}`;
+const PROJ_URL = id => `https://entreprisesphilippedenis.monday.com/boards/${PROJECTS_BOARD}/pulses/${id}`;
+const DAY_NAMES = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
+const MONTHS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+
+let state = {
+  employees: [],
+  projects: [],
+  cells: {},
+  absences: {},
+  holidays: {},        // dateStr -> itemId
+  projectCoords: {},   // projectId -> {lat,lng}
+  employeeCoords: {},  // employeeId -> {lat,lng}
+  roadDistances: {},   // employeeId -> {projectId: km} (réel, via OSRM)
+  roadDistancesDate: null, // date du dernier calcul
+  equipmentByEmployee: {}, // employeeId -> nombre de véhicules actifs à son nom
+  liftByEmployee: {}, // employeeId -> nombre d'équipements de levage actifs à son nom
+  weekOffset: 0,
+  empFilter: '',
+  projFilter: '',
+  busy: false
+};
+
+// Vert (lead) = Contremaître, Contremaître+, Représentant désigné.
+// Bleu (crew) = Apprenti 1/2/3, Menuisier compagnon, Payé contremaitre.
+function classify(titre) {
+  if (!titre) return 'autre';
+  const t = titre.toLowerCase();
+  if (/pay[eé]/.test(t)) return 'crew'; // "Payé contremaitre (Menuisier)" -> bleu, pas un vrai contremaître
+  if (/contrema[iî]tre/.test(t) || /repr[eé]sentant d[eé]sign[eé]/.test(t)) return 'lead';
+  if (/apprenti/.test(t) || /compagnon/.test(t)) return 'crew';
+  return 'autre';
+}
+// Contremaître, Contremaître+ et Représentant désigné = responsables du chantier, affichés en premier dans une case.
+function isLeadTitre(titre) {
+  return classify(titre) === 'lead';
+}
+
+function iso(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function getMonday(d) {
+  const r = new Date(d); const day = r.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  r.setDate(r.getDate()+diff); r.setHours(0,0,0,0);
+  return r;
+}
+function currentWeekDates() {
+  const monday = addDays(getMonday(new Date()), state.weekOffset*7);
+  return [0,1,2,3,4].map(i => addDays(monday, i));
+}
+function weekLabel(dates) {
+  const start = dates[0], end = dates[4];
+  if (start.getMonth() === end.getMonth()) {
+    return `Semaine du ${start.getDate()} au ${end.getDate()} ${MONTHS[end.getMonth()]} ${end.getFullYear()}`;
+  }
+  return `Semaine du ${start.getDate()} ${MONTHS[start.getMonth()]} au ${end.getDate()} ${MONTHS[end.getMonth()]} ${end.getFullYear()}`;
+}
+
+function showToast(msg, type=true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  let bg = '#df2f4a'; // error (default / type===true)
+  if (type === false) bg = '#1a1a1a'; // info
+  else if (type === 'warning') bg = '#d97706'; // avertissement (non bloquant)
+  t.style.background = bg;
+  t.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>{ t.style.display='none'; }, type==='warning' ? 6000 : 4000);
+}
+function setOverlay(show, text) {
+  const o = document.getElementById('overlay');
+  if (text) o.querySelector('div').textContent = text;
+  o.classList.toggle('hidden', !show);
+}
+function askConfirm(message) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-message').textContent = message;
+    modal.classList.remove('hidden');
+    const yes = document.getElementById('confirm-yes');
+    const no = document.getElementById('confirm-no');
+    function cleanup(val) {
+      modal.classList.add('hidden');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+      resolve(val);
+    }
+    function onYes() { cleanup(true); }
+    function onNo() { cleanup(false); }
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+  });
+}
+
+async function loadEmployees() {
+  const rules = [
+    { column_id:'color_mkpfwcat', compare_value:[1], operator:'any_of' },
+    { column_id:'statut__1', compare_value:[1], operator:'any_of' },
+    { column_id:'statut_mkmxsdjs', compare_value:[0], operator:'any_of' }
+  ];
+  const items = await fetchAllItems(EMPLOYEES_BOARD, { columnIds:['statut_mkmx1x42'], rules, limit:200 });
+  return items.map(it => {
+    const cv = cvIndex(it);
+    const titre = (cv['statut_mkmx1x42'] && cv['statut_mkmx1x42'].text) || 'Autre';
+    return { id: String(it.id), name: it.name, titre, cat: classify(titre) };
+  }).sort((a,b)=> a.name.localeCompare(b.name));
+}
+
+async function loadProjects() {
+  const rules = [{ column_id:'status3', compare_value:[0], operator:'any_of' }];
+  const columnIds = ['text','people5','board_relation_mknr357t','lieu__1', LABOR_COL, COMMENT_COL];
+  const items = await fetchAllItems(PROJECTS_BOARD, { columnIds, rules, limit:200 });
+  return items.map(it => {
+    const cv = cvIndex(it);
+    const responsable = (cv['people5'] && cv['people5'].text) || '';
+    return {
+      id: String(it.id),
+      name: it.name,
+      numero: (cv['text'] && cv['text'].text) || '',
+      responsable,
+      charge: responsable.split(',')[0].trim(),
+      contremaitre: ((cv['board_relation_mknr357t'] && cv['board_relation_mknr357t'].linked) || []).map(x=>x.name).join(', '),
+      adresse: (cv['lieu__1'] && cv['lieu__1'].text) || '',
+      laborActive: (cv[LABOR_COL] ? cv[LABOR_COL].text : null) !== LABOR_INACTIVE_LABEL,
+      comment: (cv[COMMENT_COL] && cv[COMMENT_COL].text) || ''
+    };
+  }).sort((a,b)=> a.name.localeCompare(b.name));
+}
+
+async function loadPlanningCells() {
+  const items = await fetchAllItems(PLANNING_BOARD, { columnIds:[COL_PROJET, COL_DATE, COL_MENUISIERS], limit:500 });
+  const cells = {};
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const projArr = (cv[COL_PROJET] && cv[COL_PROJET].linked) || [];
+    const empArr = (cv[COL_MENUISIERS] && cv[COL_MENUISIERS].linked) || [];
+    const dateVal = cv[COL_DATE] && cv[COL_DATE].text;
+    if (!projArr.length || !dateVal) return;
+    const key = `${projArr[0].id}|${dateVal}`;
+    cells[key] = { itemId: it.id, employees: empArr.map(e=>({id:String(e.id), name:e.name})) };
+  });
+  return cells;
+}
+
+async function loadAbsences() {
+  const rules = [{ column_id: ABS_STATUS_COL, compare_value: ABS_BLOCKING_IDS, operator:'any_of' }];
+  const items = await fetchAllItems(ABSENCES_BOARD, { columnIds:[ABS_EMP_COL, ABS_STATUS_COL, ABS_RANGE_COL], rules, limit:500 });
+  const map = {};
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const empArr = (cv[ABS_EMP_COL] && cv[ABS_EMP_COL].linked) || [];
+    const link = empArr.find(e => e.board && String(e.board.id) === String(EMPLOYEES_BOARD));
+    if (!link) return;
+    const range = cv[ABS_RANGE_COL] && cv[ABS_RANGE_COL].text;
+    if (!range) return;
+    const parts = String(range).split(' - ');
+    if (parts.length !== 2) return;
+    const start = parts[0].trim(), end = parts[1].trim();
+    (map[String(link.id)] = map[String(link.id)] || []).push({ start, end });
+  });
+  return map;
+}
+
+function isAbsent(empId, dateStr) {
+  const list = state.absences[empId];
+  if (!list) return false;
+  return list.some(r => dateStr >= r.start && dateStr <= r.end);
+}
+function isAssignedAnyProject(empId, dateStr) {
+  return state.projects.some(p => {
+    const cell = state.cells[`${p.id}|${dateStr}`];
+    return cell && cell.employees.some(e => e.id === empId);
+  });
+}
+function isHoliday(dateStr) {
+  return !!state.holidays[dateStr];
+}
+// Statut du jour pour un employé: 'absent' (absence réelle), 'assigned' (déjà sur un projet),
+// 'avail' (disponible). Un jour férié ne fait basculer en 'absent' QUE les employés qui étaient
+// autrement disponibles (n'écrase pas une absence ou une assignation déjà existante).
+function dayStatus(empId, dateStr) {
+  if (isAbsent(empId, dateStr)) return 'absent';
+  if (isAssignedAnyProject(empId, dateStr)) return 'assigned';
+  if (isHoliday(dateStr)) return 'absent';
+  return 'avail';
+}
+
+async function loadHolidays() {
+  const items = await fetchAllItems(HOLIDAYS_BOARD, { columnIds:[HOLIDAY_DATE_COL], limit:200 });
+  const map = {};
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const d = cv[HOLIDAY_DATE_COL] && cv[HOLIDAY_DATE_COL].text;
+    if (d) map[d] = it.id;
+  });
+  return map;
+}
+
+async function loadCoords(boardId, ids, columnId) {
+  if (!ids.length) return {};
+  const items = await fetchItemsByIds(ids, [columnId]);
+  const map = {};
+  items.forEach(it => {
+    const cv = (it.column_values || [])[0];
+    if (!cv || !cv.value) return;
+    try {
+      const v = JSON.parse(cv.value);
+      const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+      if (!isNaN(lat) && !isNaN(lng)) map[String(it.id)] = { lat, lng };
+    } catch (e) { /* pas de coordonnées valides */ }
+  });
+  return map;
+}
+function haversineKm(a, b) {
+  if (!a || !b) return null;
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI/180;
+  const dLng = (b.lng - a.lng) * Math.PI/180;
+  const lat1 = a.lat * Math.PI/180, lat2 = b.lat * Math.PI/180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+}
+
+async function loadRoadDistances() {
+  const items = await fetchAllItems(DISTANCES_BOARD, { columnIds:[DIST_EMP_COL, DIST_JSON_COL, DIST_DATE_COL], limit:100 });
+  const map = {};
+  let latestDate = null;
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const empId = cv[DIST_EMP_COL] && cv[DIST_EMP_COL].text;
+    if (!empId) return;
+    try {
+      map[empId] = JSON.parse((cv[DIST_JSON_COL] && cv[DIST_JSON_COL].text) || '{}');
+    } catch (e) { /* JSON invalide, ignorer */ }
+    const d = cv[DIST_DATE_COL] && cv[DIST_DATE_COL].text;
+    if (d && (!latestDate || d > latestDate)) latestDate = d;
+  });
+  return { map, latestDate };
+}
+
+async function loadEquipment() {
+  const rules = [{ column_id: EQUIP_STATUS_COL, compare_value: [EQUIP_STATUS_ACTIVE_INDEX], operator: 'any_of' }];
+  const items = await fetchAllItems(EQUIPMENT_BOARD, { columnIds:[EQUIP_STATUS_COL, EQUIP_EMP_COL], rules, limit:200 });
+  const map = {};
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const empArr = (cv[EQUIP_EMP_COL] && cv[EQUIP_EMP_COL].linked) || [];
+    empArr.forEach(e => { map[e.id] = (map[e.id] || 0) + 1; });
+  });
+  return map;
+}
+
+async function loadLiftEquipment() {
+  const rules = [{ column_id: LIFT_STATUS_COL, compare_value: [LIFT_STATUS_ACTIVE_INDEX], operator: 'any_of' }];
+  const items = await fetchAllItems(LIFT_BOARD, { columnIds:[LIFT_STATUS_COL, LIFT_EMP_COL], rules, limit:200 });
+  const map = {};
+  items.forEach(it => {
+    const cv = cvIndex(it);
+    const empArr = (cv[LIFT_EMP_COL] && cv[LIFT_EMP_COL].linked) || [];
+    empArr.forEach(e => { map[e.id] = (map[e.id] || 0) + 1; });
+  });
+  return map;
+}
+
+// Distance réelle (routière, via OSRM) si disponible dans le cache Monday, sinon estimation à vol d'oiseau
+function getDistanceInfo(empId, projId) {
+  const cached = state.roadDistances[empId];
+  if (cached && cached[projId] !== undefined) {
+    return { km: cached[projId], real: true };
+  }
+  const km = haversineKm(state.projectCoords[projId], state.employeeCoords[empId]);
+  return km !== null ? { km, real: false } : null;
+}
+
+async function loadAll() {
+  setOverlay(true, 'Chargement des données Monday…');
+  try {
+    const [employees, projects, cells, absences, holidays] = await Promise.all([
+      loadEmployees(), loadProjects(), loadPlanningCells(), loadAbsences(), loadHolidays()
+    ]);
+    state.employees = employees;
+    state.projects = projects;
+    state.cells = cells;
+    state.absences = absences;
+    state.holidays = holidays;
+    const [projectCoords, employeeCoords, roadDist, equipmentByEmployee, liftByEmployee] = await Promise.all([
+      loadCoords(PROJECTS_BOARD, projects.map(p=>p.id), PROJ_ADDR_COL),
+      loadCoords(EMPLOYEES_BOARD, employees.map(e=>e.id), EMP_ADDR_COL),
+      loadRoadDistances(),
+      loadEquipment(),
+      loadLiftEquipment()
+    ]);
+    state.projectCoords = projectCoords;
+    state.employeeCoords = employeeCoords;
+    state.roadDistances = roadDist.map;
+    state.roadDistancesDate = roadDist.latestDate;
+    state.equipmentByEmployee = equipmentByEmployee;
+    state.liftByEmployee = liftByEmployee;
+    console.log(`Chargé: ${employees.length} menuisiers, ${projects.length} projets (${projects.filter(p=>!p.laborActive).length} inactifs), ${Object.keys(cells).length} cases assignées, absences pour ${Object.keys(absences).length} employé(s), ${Object.keys(holidays).length} jour(s) férié(s), coords ${Object.keys(projectCoords).length}/${projects.length} projets et ${Object.keys(employeeCoords).length}/${employees.length} employés, distances routières réelles pour ${Object.keys(roadDist.map).length} employé(s) (calculées le ${roadDist.latestDate||'?'}), ${Object.keys(equipmentByEmployee).length} employé(s) avec véhicule actif, ${Object.keys(liftByEmployee).length} employé(s) avec équipement de levage actif.`);
+  } catch (err) {
+    showToast('Erreur de chargement: ' + err.message);
+    console.error(err);
+  } finally {
+    setOverlay(false);
+    render();
+    syncAvailabilityPastilles();
+  }
+}
+
+async function createPlanningItem(projectId, projectName, dateStr, employeeId) {
+  const columnValues = {
+    [COL_PROJET]: { item_ids:[Number(projectId)] },
+    [COL_DATE]: { date: dateStr },
+    [COL_MENUISIERS]: { item_ids:[Number(employeeId)] }
+  };
+  return await mondayCreateItem(PLANNING_BOARD, `${projectName} — ${dateStr}`, columnValues);
+}
+async function updateAssignmentEmployees(itemId, employeeIds) {
+  await mondayChangeColumns(PLANNING_BOARD, itemId, { [COL_MENUISIERS]: { item_ids: employeeIds.map(Number) } });
+}
+async function deletePlanningItem(itemId) {
+  await mondayDeleteItem(itemId);
+}
+async function setProjectLabor(projectId, active) {
+  await mondayChangeColumns(PROJECTS_BOARD, projectId, { [LABOR_COL]: { label: active ? LABOR_ACTIVE_LABEL : LABOR_INACTIVE_LABEL } });
+}
+async function saveProjectComment(projectId, text, inputEl) {
+  const p = state.projects.find(x=>x.id===String(projectId));
+  if (p && p.comment === text) return;
+  try {
+    await mondayChangeColumns(PROJECTS_BOARD, projectId, { [COMMENT_COL]: { text } });
+    if (p) p.comment = text;
+    if (inputEl) inputEl.classList.toggle('has-text', !!text);
+  } catch (err) {
+    showToast('Erreur lors de l\'enregistrement du commentaire: ' + err.message);
+  }
+}
+async function toggleHoliday(dateStr, checked) {
+  try {
+    if (checked) {
+      const itemId = await mondayCreateItem(HOLIDAYS_BOARD, dateStr, { [HOLIDAY_DATE_COL]: { date: dateStr } });
+      state.holidays[dateStr] = itemId;
+    } else {
+      const itemId = state.holidays[dateStr];
+      if (itemId) await mondayDeleteItem(itemId);
+      delete state.holidays[dateStr];
+    }
+    render();
+    syncAvailabilityPastilles();
+  } catch (err) {
+    showToast('Erreur jour férié: ' + err.message);
+    await loadAll();
+  }
+}
+async function syncAvailabilityPastilles() {
+  try {
+    const dates = currentWeekDates().map(iso);
+    await runWithConcurrency(state.employees, 5, async (e) => {
+      const cv = {};
+      dates.forEach((ds, i) => {
+        const st = dayStatus(e.id, ds);
+        const label = st === 'absent' ? 'Absent' : (st === 'assigned' ? 'Assigné' : 'Disponible');
+        cv[AVAIL_COLS[i]] = { label };
+      });
+      await mondayChangeColumns(EMPLOYEES_BOARD, e.id, cv);
+    });
+    console.log('Pastilles de disponibilité synchronisées pour', dates.join(', '));
+  } catch (err) {
+    console.warn('Synchronisation des pastilles échouée', err);
+  }
+}
+
+function empInfo(id) {
+  const e = state.employees.find(e=>e.id===String(id));
+  return e ? { id:e.id, name:e.name } : { id:String(id), name:'?' };
+}
+
+async function addAssignmentRaw(projectId, dateStr, employeeId) {
+  const key = `${projectId}|${dateStr}`;
+  const cell = state.cells[key];
+  if (cell && cell.employees.some(e=>e.id===String(employeeId))) return;
+  if (cell) {
+    const newIds = [...cell.employees.map(e=>e.id), String(employeeId)];
+    await updateAssignmentEmployees(cell.itemId, newIds);
+    cell.employees.push(empInfo(employeeId));
+  } else {
+    const project = state.projects.find(p=>p.id===String(projectId));
+    const itemId = await createPlanningItem(projectId, project ? project.name : projectId, dateStr, employeeId);
+    state.cells[key] = { itemId, employees:[empInfo(employeeId)] };
+  }
+}
+
+async function addAssignment(projectId, dateStr, employeeId) {
+  if (state.busy) return;
+  state.busy = true;
+  try {
+    await addAssignmentRaw(projectId, dateStr, employeeId);
+    render();
+    syncAvailabilityPastilles();
+  } catch (err) {
+    showToast("Erreur lors de l'assignation: " + err.message);
+    await loadAll();
+  } finally { state.busy = false; }
+}
+
+async function duplicateWeekToNext() {
+  if (state.busy) return;
+  const dates = currentWeekDates().map(iso);
+  const nextMonday = addDays(getMonday(new Date()), (state.weekOffset + 1) * 7);
+  const nextDateObjs = [0,1,2,3,4].map(i => addDays(nextMonday, i));
+  const nextDates = nextDateObjs.map(iso);
+
+  const toCopy = [];
+  state.projects.forEach(p => {
+    dates.forEach((ds, i) => {
+      const cell = state.cells[`${p.id}|${ds}`];
+      if (cell && cell.employees.length) {
+        cell.employees.forEach(emp => toCopy.push({ projectId: p.id, date: nextDates[i], employeeId: emp.id }));
+      }
+    });
+  });
+  if (!toCopy.length) { showToast('Aucune assignation à dupliquer cette semaine.', false); return; }
+  const filtered = toCopy.filter(x => !isHoliday(x.date));
+  const skipped = toCopy.length - filtered.length;
+  const ok = await askConfirm(`Dupliquer ${filtered.length} assignation(s) vers la ${weekLabel(nextDateObjs).toLowerCase()} ?${skipped ? ` (${skipped} ignorée(s), jour férié)` : ''}`);
+  if (!ok) return;
+
+  state.busy = true;
+  setOverlay(true, 'Duplication en cours…');
+  try {
+    for (const item of filtered) {
+      await addAssignmentRaw(item.projectId, item.date, item.employeeId);
+    }
+    render();
+    await syncAvailabilityPastilles();
+    showToast(`${filtered.length} assignation(s) dupliquée(s) vers la semaine suivante.`, false);
+  } catch (err) {
+    showToast('Erreur duplication: ' + err.message);
+    await loadAll();
+  } finally {
+    state.busy = false;
+    setOverlay(false);
+  }
+}
+
+async function removeAssignment(projectId, dateStr, employeeId) {
+  if (state.busy) return;
+  const key = `${projectId}|${dateStr}`;
+  const cell = state.cells[key];
+  if (!cell) return;
+  state.busy = true;
+  try {
+    const remaining = cell.employees.filter(e=>e.id!==String(employeeId));
+    if (remaining.length === 0) {
+      await deletePlanningItem(cell.itemId);
+      delete state.cells[key];
+    } else {
+      await updateAssignmentEmployees(cell.itemId, remaining.map(e=>e.id));
+      cell.employees = remaining;
+    }
+    render();
+    syncAvailabilityPastilles();
+  } catch (err) {
+    showToast('Erreur lors du retrait: ' + err.message);
+    await loadAll();
+  } finally { state.busy = false; }
+}
+
+async function moveAssignment(fromProjectId, fromDate, toProjectId, toDate, employeeId) {
+  if (fromProjectId === toProjectId && fromDate === toDate) return;
+  await removeAssignment(fromProjectId, fromDate, employeeId);
+  await addAssignment(toProjectId, toDate, employeeId);
+}
+
+async function toggleProjectLabor(projectId, makeActive) {
+  const p = state.projects.find(x=>x.id===String(projectId));
+  if (!p) return;
+  try {
+    await setProjectLabor(projectId, makeActive);
+    p.laborActive = makeActive;
+    render();
+  } catch (err) {
+    showToast('Erreur: ' + err.message);
+  }
+}
+
+// ---------- Rendering ----------
+function computeConflicts(dates) {
+  const perEmpDate = {};
+  dates.forEach(d => {
+    const dateStr = iso(d);
+    state.projects.forEach(p => {
+      const cell = state.cells[`${p.id}|${dateStr}`];
+      if (!cell) return;
+      cell.employees.forEach(e => {
+        perEmpDate[e.id] = perEmpDate[e.id] || {};
+        perEmpDate[e.id][dateStr] = (perEmpDate[e.id][dateStr]||0) + 1;
+      });
+    });
+  });
+  return perEmpDate;
+}
+
+function render() {
+  const dates = currentWeekDates();
+  const dateStrs = dates.map(iso);
+  document.getElementById('weeklabel').textContent = weekLabel(dates);
+
+  const activeProjects = state.projects.filter(p=>p.laborActive);
+  const inactiveProjects = state.projects.filter(p=>!p.laborActive);
+  document.getElementById('stat-projects').textContent = activeProjects.length;
+  document.getElementById('stat-inactive').textContent = inactiveProjects.length;
+  document.getElementById('stat-employees').textContent = state.employees.length;
+
+  const conflicts = computeConflicts(dates);
+  let conflictCount = 0;
+  Object.values(conflicts).forEach(byDate => Object.values(byDate).forEach(c => { if (c>1) conflictCount++; }));
+  const cEl = document.getElementById('stat-conflicts');
+  if (conflictCount > 0) { cEl.style.display='block'; cEl.textContent = `⚠ ${conflictCount} conflit(s) (menuisier double-booké)`; }
+  else { cEl.style.display='none'; }
+
+  // Sidebar
+  const filter = state.empFilter.trim().toLowerCase();
+  const visibleEmployees = state.employees.filter(e => !filter || e.name.toLowerCase().includes(filter));
+  document.getElementById('emp-count').textContent = `${visibleEmployees.length} / ${state.employees.length} affichés`;
+
+  function buildEmpCard(e) {
+    let countThisWeek = 0, hasConflict = false;
+    dateStrs.forEach(ds => {
+      const c = (conflicts[e.id]||{})[ds];
+      if (c) { countThisWeek += c; if (c>1) hasConflict = true; }
+    });
+    const absentDays = dateStrs.filter(ds => isAbsent(e.id, ds)).length;
+    const dayDots = dateStrs.map((ds, i) => {
+      const st = dayStatus(e.id, ds);
+      const stLabel = st === 'absent' ? 'Absent' : (st === 'assigned' ? 'Assigné' : 'Disponible');
+      return `<span class="emp-day-dot ${st}" title="${DAY_NAMES[i]}: ${stLabel}"></span>`;
+    }).join('');
+    const card = document.createElement('div');
+    card.className = `emp-card cat-${e.cat}`;
+    card.draggable = true;
+    card.innerHTML = `<div class="emp-name">${e.name}<span class="emp-titre">${e.titre}${absentDays?' · 🚫 absent '+absentDays+'j':''}</span><span class="emp-days">${dayDots}</span></div>${hasConflict?'<span class="emp-warn" title="Double réservation cette semaine">⚠</span>':''}${countThisWeek?`<span class="emp-badge">${countThisWeek}</span>`:''}`;
+    card.addEventListener('dragstart', ev => {
+      ev.dataTransfer.setData('text/plain', JSON.stringify({ type:'new', employeeId: e.id }));
+      ev.dataTransfer.effectAllowed = 'move';
+    });
+    return card;
+  }
+
+  const toPlan = [], complete = [];
+  visibleEmployees.forEach(e => {
+    const allBooked = dateStrs.every(ds => dayStatus(e.id, ds) !== 'avail');
+    (allBooked ? complete : toPlan).push(e);
+  });
+
+  const list = document.getElementById('emp-list');
+  list.innerHTML = '';
+  toPlan.forEach(e => list.appendChild(buildEmpCard(e)));
+
+  if (complete.length) {
+    const wrap = document.createElement('details');
+    wrap.id = 'emp-complete-wrap';
+    const summary = document.createElement('summary');
+    summary.textContent = `Complets cette semaine (${complete.length})`;
+    wrap.appendChild(summary);
+    const innerList = document.createElement('div');
+    complete.forEach(e => innerList.appendChild(buildEmpCard(e)));
+    wrap.appendChild(innerList);
+    list.appendChild(wrap);
+  }
+
+  // Grid head
+  const head = document.getElementById('grid-head');
+  head.innerHTML = `<th class="cp-col">Chargé de projets</th><th class="comment-col">Commentaire</th><th class="proj-col">Projet</th>` + dates.map((d,i)=>{
+    const ds = dateStrs[i];
+    const holidayChecked = isHoliday(ds);
+    return `<th class="${holidayChecked?'is-holiday':''}">${DAY_NAMES[i]}<br><span style="font-weight:400;text-transform:none;">${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)}</span><br><label class="holiday-toggle"><input type="checkbox" class="holiday-checkbox" data-date="${ds}" ${holidayChecked?'checked':''}> Férié</label></th>`;
+  }).join('');
+  head.querySelectorAll('.holiday-checkbox').forEach(cb => {
+    cb.addEventListener('click', ev => ev.stopPropagation());
+    cb.addEventListener('change', ev => toggleHoliday(ev.target.dataset.date, ev.target.checked));
+  });
+
+  // Grid body
+  const pfilter = state.projFilter.trim().toLowerCase();
+  const visibleProjects = activeProjects.filter(p => !pfilter || p.name.toLowerCase().includes(pfilter) || p.numero.toLowerCase().includes(pfilter));
+  const body = document.getElementById('grid-body');
+  body.innerHTML = '';
+  visibleProjects.forEach(p => {
+    const tr = document.createElement('tr');
+    const metaBits = [];
+    if (p.numero) metaBits.push('#'+p.numero);
+    if (p.adresse) metaBits.push(p.adresse);
+    const cpCell = document.createElement('td');
+    cpCell.className = 'cp-cell';
+    cpCell.textContent = p.charge || '—';
+    tr.appendChild(cpCell);
+    const commentCell = document.createElement('td');
+    commentCell.className = 'comment-cell';
+    const commentInput = document.createElement('textarea');
+    commentInput.className = 'comment-input' + (p.comment ? ' has-text' : '');
+    commentInput.placeholder = 'Note (conflit, besoin...)';
+    commentInput.value = p.comment || '';
+    commentInput.addEventListener('click', ev => ev.stopPropagation());
+    commentInput.addEventListener('change', () => saveProjectComment(p.id, commentInput.value, commentInput));
+    commentCell.appendChild(commentInput);
+    tr.appendChild(commentCell);
+    const projCell = document.createElement('td');
+    projCell.className = 'proj-cell';
+    projCell.innerHTML = `<div class="proj-name-row"><div class="proj-name"><a href="${PROJ_URL(p.id)}" target="_blank" rel="noopener">${p.name}</a></div><button class="proj-toggle" title="Marquer sans besoin de main-d'œuvre">⏸</button></div><div class="proj-meta">${metaBits.join(' · ')}</div>`;
+    projCell.querySelector('.proj-toggle').addEventListener('click', () => toggleProjectLabor(p.id, false));
+    tr.appendChild(projCell);
+    dateStrs.forEach(ds => {
+      const td = document.createElement('td');
+      td.className = 'day-cell';
+      td.dataset.projectId = p.id;
+      td.dataset.date = ds;
+      const cell = state.cells[`${p.id}|${ds}`];
+      const inner = document.createElement('div');
+      inner.className = 'day-inner';
+      if (cell && cell.employees.length) {
+        const sortedEmployees = [...cell.employees].sort((a, b) => {
+          const ea = state.employees.find(x=>x.id===a.id);
+          const eb = state.employees.find(x=>x.id===b.id);
+          const la = isLeadTitre(ea && ea.titre);
+          const lb = isLeadTitre(eb && eb.titre);
+          if (la === lb) return 0;
+          return la ? -1 : 1;
+        });
+        sortedEmployees.forEach(emp => {
+          const empData = state.employees.find(x=>x.id===emp.id);
+          const cat = empData ? empData.cat : 'autre';
+          const isConflict = ((conflicts[emp.id]||{})[ds]||0) > 1;
+          const isAbs = isAbsent(emp.id, ds);
+          const distInfo = getDistanceInfo(emp.id, p.id);
+          const kmHtml = distInfo !== null ? `<span class="chip-km${!distInfo.real?' estimate':''}${distInfo.km>=FAR_KM_THRESHOLD?' far':''}" title="${distInfo.real ? 'Distance routière réelle (calculée le '+(state.roadDistancesDate||'?')+')' : 'Distance estimée à vol d\'oiseau (pas encore dans le cache routier)'}">${distInfo.km}km${distInfo.real?'':'*'}</span>` : '';
+          const chip = document.createElement('div');
+          chip.className = `chip cat-${cat}${isConflict?' conflict':''}`;
+          chip.draggable = true;
+          chip.title = [isConflict?'Assigné à plusieurs projets ce jour':'', isAbs?'⚠ Absence enregistrée ce jour !':''].filter(Boolean).join(' — ');
+          chip.innerHTML = `<a href="${EMP_URL(emp.id)}" target="_blank" rel="noopener">${isAbs?'🚫 ':''}${emp.name}</a>${kmHtml}<span class="x" data-action="remove">×</span>`;
+          chip.addEventListener('dragstart', ev => {
+            ev.dataTransfer.setData('text/plain', JSON.stringify({ type:'move', employeeId: emp.id, fromProjectId: p.id, fromDate: ds }));
+            ev.dataTransfer.effectAllowed = 'move';
+          });
+          chip.querySelector('.x').addEventListener('click', (ev) => { ev.stopPropagation(); removeAssignment(p.id, ds, emp.id); });
+          inner.appendChild(chip);
+        });
+      }
+      td.appendChild(inner);
+      if (cell && cell.employees.length) {
+        let truckCount = 0;
+        const truckNames = [];
+        let liftCount = 0;
+        const liftNames = [];
+        cell.employees.forEach(emp => {
+          const n = state.equipmentByEmployee[emp.id] || 0;
+          if (n > 0) { truckCount += n; truckNames.push(n > 1 ? `${emp.name} (×${n})` : emp.name); }
+          const l = state.liftByEmployee[emp.id] || 0;
+          if (l > 0) { liftCount += l; liftNames.push(l > 1 ? `${emp.name} (×${l})` : emp.name); }
+        });
+        if (liftCount > 0) {
+          const liftBadge = document.createElement('div');
+          liftBadge.className = 'lift-badge';
+          liftBadge.textContent = liftCount > 1 ? `🏗️×${liftCount}` : '🏗️';
+          liftBadge.title = `Équipement(s) de levage actif(s) présent(s) : ${liftNames.join(', ')}`;
+          td.appendChild(liftBadge);
+        }
+        if (truckCount > 0) {
+          const badge = document.createElement('div');
+          badge.className = 'truck-badge' + (liftCount > 0 ? ' with-lift' : '');
+          badge.textContent = truckCount > 1 ? `🚚×${truckCount}` : '🚚';
+          badge.title = `Camion(s) actif(s) présent(s) : ${truckNames.join(', ')}`;
+          td.appendChild(badge);
+        }
+      }
+      td.addEventListener('dragover', ev => { ev.preventDefault(); td.classList.add('drag-over'); });
+      td.addEventListener('dragleave', () => td.classList.remove('drag-over'));
+      td.addEventListener('drop', async ev => {
+        ev.preventDefault();
+        td.classList.remove('drag-over');
+        let payload;
+        try { payload = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch(e) { return; }
+        if (!payload) return;
+
+        const emp = state.employees.find(x=>x.id===String(payload.employeeId));
+        const empName = emp ? emp.name : 'cet employé';
+
+        function dayLabel(dStr) {
+          const idx = dateStrs.indexOf(dStr);
+          if (idx === -1) return dStr;
+          return `${DAY_NAMES[idx]} ${dates[idx].getDate()} ${MONTHS[dates[idx].getMonth()].slice(0,3)}`;
+        }
+        function isAssignedElsewhere(dStr, excludeProjectIds) {
+          return state.projects.some(pr => {
+            if (excludeProjectIds.includes(pr.id)) return false;
+            const cell = state.cells[`${pr.id}|${dStr}`];
+            return cell && cell.employees.some(e => e.id === String(payload.employeeId));
+          });
+        }
+        function warnConflicts(conflictDates) {
+          if (!conflictDates.length) return;
+          const list = conflictDates.map(dayLabel).join(', ');
+          showToast(`⚠ ${empName} est déjà affecté à un autre chantier le ${list}. Affectation ajoutée quand même.`, 'warning');
+        }
+
+        if (payload.type === 'new' && ds === dateStrs[0]) {
+          const wantsWeek = await askConfirm(`Ajouter ${empName} pendant toute la semaine sur ce projet ?`);
+          if (wantsWeek) {
+            const conflictDates = [];
+            for (const d2 of dateStrs) {
+              if (isHoliday(d2)) continue;
+              if (isAssignedElsewhere(d2, [p.id])) conflictDates.push(d2);
+              await addAssignment(p.id, d2, payload.employeeId);
+            }
+            warnConflicts(conflictDates);
+            return;
+          }
+        }
+
+        if (payload.type === 'new') {
+          const conflict = isAssignedElsewhere(ds, [p.id]);
+          await addAssignment(p.id, ds, payload.employeeId);
+          if (conflict) warnConflicts([ds]);
+          return;
+        }
+
+        if (payload.type === 'move') {
+          if (payload.fromDate === dateStrs[0] && ds === dateStrs[0] && payload.fromProjectId !== p.id) {
+            const wantsWeek = await askConfirm(`Déplacer ${empName} pendant toute la semaine vers ce projet ?`);
+            if (wantsWeek) {
+              const conflictDates = [];
+              for (const d2 of dateStrs) {
+                const fromCell = state.cells[`${payload.fromProjectId}|${d2}`];
+                const wasAssigned = fromCell && fromCell.employees.some(e => e.id === String(payload.employeeId));
+                if (!wasAssigned) continue;
+                if (isAssignedElsewhere(d2, [payload.fromProjectId, p.id])) conflictDates.push(d2);
+                await moveAssignment(payload.fromProjectId, d2, p.id, d2, payload.employeeId);
+              }
+              warnConflicts(conflictDates);
+              return;
+            }
+          }
+          const conflict = isAssignedElsewhere(ds, [payload.fromProjectId, p.id]);
+          await moveAssignment(payload.fromProjectId, payload.fromDate, p.id, ds, payload.employeeId);
+          if (conflict) warnConflicts([ds]);
+        }
+      });
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+
+  // Inactive projects section
+  document.getElementById('inactive-count').textContent = inactiveProjects.length;
+  const inactiveList = document.getElementById('inactive-list');
+  inactiveList.innerHTML = '';
+  inactiveProjects.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'inactive-row';
+    row.innerHTML = `<div><div class="name">${p.name}</div><div class="meta">#${p.numero}${p.adresse?' · '+p.adresse:''}</div></div>`;
+    const btn = document.createElement('button');
+    btn.className = 'proj-toggle';
+    btn.textContent = '▶ Réactiver';
+    btn.addEventListener('click', () => toggleProjectLabor(p.id, true));
+    row.appendChild(btn);
+    inactiveList.appendChild(row);
+  });
+}
+
+// ---------- Events ----------
+document.getElementById('btn-prev').addEventListener('click', () => { state.weekOffset--; render(); syncAvailabilityPastilles(); });
+document.getElementById('btn-next').addEventListener('click', () => { state.weekOffset++; render(); syncAvailabilityPastilles(); });
+document.getElementById('btn-today').addEventListener('click', () => { state.weekOffset = 0; render(); syncAvailabilityPastilles(); });
+document.getElementById('btn-duplicate').addEventListener('click', duplicateWeekToNext);
+document.getElementById('emp-search').addEventListener('input', (e) => { state.empFilter = e.target.value; render(); });
+document.getElementById('proj-search').addEventListener('input', (e) => { state.projFilter = e.target.value; render(); });
+
+monday.execute('valueCreatedForUser');
+loadAll();
+</script>
+</body>
+</html>
