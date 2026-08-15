@@ -2,5 +2,8 @@
   "name": "planification-chantier",
   "version": "1.0.0",
   "private": true,
-  "description": "Application web autonome de planification chantier — Entreprises Philippe Denis"
+  "description": "Application web autonome de planification chantier — Entreprises Philippe Denis",
+  "dependencies": {
+    "nodemailer": "^6.9.14"
+  }
 }
