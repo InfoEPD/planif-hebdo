@@ -1,11 +1,12 @@
 // api/send-schedule.js
 // Petite fonction serverless (Vercel) qui envoie les courriels d'horaire via votre
 // boîte courriel Outlook / Microsoft 365, en utilisant SMTP. Les identifiants
-// (SMTP_USER, SMTP_PASSWORD) et le mot de passe d'équipe (APP_PASSWORD) sont lus
-// depuis les variables d'environnement Vercel — ils ne se trouvent jamais dans le
-// code ni dans le dépôt GitHub.
+// (SMTP_USER, SMTP_PASSWORD) sont lus depuis les variables d'environnement Vercel
+// — ils ne se trouvent jamais dans le code ni dans le dépôt GitHub. Chaque requête
+// doit fournir un jeton de session Clerk valide (utilisateur connecté).
 
 const nodemailer = require('nodemailer');
+const { verifyToken } = require('@clerk/backend');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,14 +14,20 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const appPassword = process.env.APP_PASSWORD;
-  const suppliedPassword = req.headers['x-app-password'];
-  if (!appPassword) {
-    res.status(500).json({ error: "APP_PASSWORD n'est pas configuré sur le serveur." });
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) {
+    res.status(500).json({ error: "CLERK_SECRET_KEY n'est pas configuré sur le serveur." });
     return;
   }
-  if (suppliedPassword !== appPassword) {
-    res.status(401).json({ error: 'Mot de passe invalide.' });
+  const bearerToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  if (!bearerToken) {
+    res.status(401).json({ error: 'Non authentifié.' });
+    return;
+  }
+  try {
+    await verifyToken(bearerToken, { secretKey });
+  } catch (err) {
+    res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
     return;
   }
 
