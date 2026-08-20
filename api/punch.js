@@ -1,7 +1,7 @@
 // api/punch.js
-// Début / fin de poinçon (interface mobile employé). Écrit dans le board Monday
-// "⏱️ Poinçons". Nécessite un jeton Clerk avec claim role === 'employee'
-// (voir api/employee-today.js pour la configuration Clerk requise).
+// Début / changement de chantier / fin de poinçon (interface mobile employé). Écrit dans le
+// board Monday "⏱️ Poinçons". Nécessite un jeton de session Clerk avec publicMetadata.role
+// === 'employee' (voir api/employee-today.js pour la note de configuration Clerk requise).
 //
 // Convention CCQ commerciale (Québec) utilisée pour ajuster le total payable :
 //   - Dîner (30 min) : toujours déduit du temps écoulé, que la pause ait été prise ou non.
@@ -9,6 +9,22 @@
 //     déduites. Si NON prises, on AJOUTE 15 min au total payable (l'employé a soit
 //     travaillé pendant la pause, soit quitté plus tôt sans la prendre).
 //   - Le total payable est ensuite arrondi au 15 minutes le plus proche (haut ou bas).
+//   - Cette déduction/ajustement ne s'applique qu'UNE SEULE FOIS par journée, sur le
+//     dernier segment de travail (voir action 'switch' ci-dessous pour les changements
+//     de chantier en cours de journée — un employé peut avoir plusieurs poinçons/segments
+//     le même jour, un par chantier).
+//
+// Actions :
+//   start  — débute un poinçon sur un projet.
+//   switch — change de chantier en cours de poinçon : ferme le segment actif (heure de fin
+//            arrondie au 15 min le plus proche) et ouvre immédiatement un nouveau segment sur
+//            le nouveau projet à CETTE MÊME heure arrondie (aucune seconde perdue/dupliquée).
+//   finish — termine la journée : calcule le total payable sur l'ENSEMBLE des segments du
+//            jour (tous chantiers confondus) et applique la déduction/ajustement des pauses
+//            une seule fois, imputée au dernier segment.
+//
+// La géolocalisation (lat/lng) est OBLIGATOIRE pour start/switch/finish — validée ici côté
+// serveur pour qu'elle ne puisse pas être contournée depuis le client.
 
 const { verifyToken } = require('@clerk/backend');
 
@@ -54,6 +70,16 @@ function round15(minutes) {
   return Math.round(minutes / 15) * 15;
 }
 
+// Arrondit une HEURE DE L'HORLOGE (pas une durée) au 15 minutes le plus proche.
+function roundClockToNearest15(hour, minute) {
+  const total = hour * 60 + minute;
+  const rounded = Math.round(total / 15) * 15;
+  const wrapped = ((rounded % 1440) + 1440) % 1440;
+  return { hour: Math.floor(wrapped / 60), minute: wrapped % 60 };
+}
+
+function isValidCoord(v) { return typeof v === 'number' && isFinite(v); }
+
 async function mondayGraphQL(mondayToken, query, variables) {
   const r = await fetch('https://api.monday.com/v2', {
     method: 'POST',
@@ -94,6 +120,10 @@ module.exports = async function handler(req, res) {
     if (action === 'start') {
       const { projectId, lat, lng, kmSuggested } = req.body || {};
       if (!projectId) { res.status(400).json({ error: 'Projet manquant.' }); return; }
+      if (!isValidCoord(lat) || !isValidCoord(lng)) {
+        res.status(400).json({ error: 'Localisation (GPS) requise pour débuter un poinçon. Veuillez activer la localisation.' });
+        return;
+      }
       const now = nowInToronto();
 
       // Éviter un doublon si l'employé a déjà un poinçon ouvert aujourd'hui.
@@ -122,7 +152,7 @@ module.exports = async function handler(req, res) {
         [COL_DATE]: { date: now.date },
         [COL_SEMAINE]: mondayOfWeek(now.date),
         [COL_HEURE_DEBUT]: { hour: now.hour, minute: now.minute },
-        [COL_GPS_DEBUT]: (lat != null && lng != null) ? `${lat},${lng}` : '',
+        [COL_GPS_DEBUT]: `${lat},${lng}`,
         [COL_STATUT]: { label: 'En attente' }
       };
       if (typeof kmSuggested === 'number') columnValues[COL_KM_SUGGERE] = kmSuggested;
@@ -137,9 +167,94 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (action === 'switch') {
+      const { itemId, newProjectId, lat, lng } = req.body || {};
+      if (!itemId || !newProjectId) { res.status(400).json({ error: 'Poinçon ou nouveau projet manquant.' }); return; }
+      if (!isValidCoord(lat) || !isValidCoord(lng)) {
+        res.status(400).json({ error: 'Localisation (GPS) requise pour changer de chantier. Veuillez activer la localisation.' });
+        return;
+      }
+
+      const detail = await mondayGraphQL(mondayToken, `
+        query($ids: [ID!]) {
+          items(ids: $ids) {
+            id
+            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_DATE}"]) {
+              id text
+              ... on BoardRelationValue { linked_item_ids }
+              ... on HourValue { hour minute }
+            }
+          }
+        }
+      `, { ids: [String(itemId)] });
+
+      const item = (detail.items || [])[0];
+      if (!item) { res.status(404).json({ error: 'Poinçon introuvable.' }); return; }
+      const empCv = item.column_values.find(c => c.id === COL_EMPLOYE);
+      const ids = (empCv && empCv.linked_item_ids) || [];
+      if (!ids.map(String).includes(employeeItemId)) {
+        res.status(403).json({ error: "Ce poinçon n'appartient pas à cet employé." });
+        return;
+      }
+      const finCv = item.column_values.find(c => c.id === COL_HEURE_FIN);
+      if (finCv && finCv.text) { res.status(400).json({ error: 'Ce poinçon est déjà terminé.' }); return; }
+      const dateCv = item.column_values.find(c => c.id === COL_DATE);
+      const itemDate = (dateCv && dateCv.text) || nowInToronto().date;
+      const startCv = item.column_values.find(c => c.id === COL_HEURE_DEBUT);
+      const startHour = startCv && typeof startCv.hour === 'number' ? startCv.hour : 0;
+      const startMinute = startCv && typeof startCv.minute === 'number' ? startCv.minute : 0;
+
+      const now = nowInToronto();
+      const rounded = roundClockToNearest15(now.hour, now.minute);
+
+      let elapsedMin = (rounded.hour * 60 + rounded.minute) - (startHour * 60 + startMinute);
+      if (elapsedMin < 0) elapsedMin += 1440;
+      const brutH = Math.round((elapsedMin / 60) * 100) / 100;
+
+      // Ferme le segment actif — sans déduction de pause ici (appliquée une seule fois, à la
+      // toute fin de journée, sur le dernier segment).
+      await mondayGraphQL(mondayToken, `
+        mutation($board: ID!, $item: ID!, $cv: JSON!) {
+          change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id }
+        }
+      `, {
+        board: String(POINCONS_BOARD), item: String(itemId),
+        cv: JSON.stringify({
+          [COL_HEURE_FIN]: { hour: rounded.hour, minute: rounded.minute },
+          [COL_GPS_FIN]: `${lat},${lng}`,
+          [COL_TOTAL_BRUT]: brutH,
+          [COL_TOTAL_AJUSTE]: brutH
+        })
+      });
+
+      // Ouvre le nouveau segment EXACTEMENT à l'heure arrondie de fin du précédent — aucune
+      // seconde perdue ni dupliquée pour l'employé.
+      const columnValues = {
+        [COL_EMPLOYE]: { item_ids: [Number(employeeItemId)] },
+        [COL_PROJET]: { item_ids: [Number(newProjectId)] },
+        [COL_DATE]: { date: itemDate },
+        [COL_SEMAINE]: mondayOfWeek(itemDate),
+        [COL_HEURE_DEBUT]: { hour: rounded.hour, minute: rounded.minute },
+        [COL_GPS_DEBUT]: `${lat},${lng}`,
+        [COL_STATUT]: { label: 'En attente' }
+      };
+      const created = await mondayGraphQL(mondayToken, `
+        mutation($board: ID!, $name: String!, $cv: JSON!) {
+          create_item(board_id: $board, item_name: $name, column_values: $cv) { id }
+        }
+      `, { board: String(POINCONS_BOARD), name: `Poinçon ${itemDate}`, cv: JSON.stringify(columnValues) });
+
+      res.status(200).json({ oldItemId: itemId, newItemId: created.create_item.id, switchedAt: rounded });
+      return;
+    }
+
     if (action === 'finish') {
       const { itemId, lat, lng, morningSkipped, morningReason, lunchSkipped, lunchReason, afternoonTaken, kmAdjusted } = req.body || {};
       if (!itemId) { res.status(400).json({ error: 'Poinçon manquant.' }); return; }
+      if (!isValidCoord(lat) || !isValidCoord(lng)) {
+        res.status(400).json({ error: 'Localisation (GPS) requise pour terminer un poinçon. Veuillez activer la localisation.' });
+        return;
+      }
       if (morningSkipped && !(morningReason || '').trim()) {
         res.status(400).json({ error: "Raison obligatoire si la pause du matin n'a pas été prise." });
         return;
@@ -173,24 +288,63 @@ module.exports = async function handler(req, res) {
       const startCv = item.column_values.find(c => c.id === COL_HEURE_DEBUT);
       const startHour = startCv && typeof startCv.hour === 'number' ? startCv.hour : 0;
       const startMinute = startCv && typeof startCv.minute === 'number' ? startCv.minute : 0;
+      const dateCv = item.column_values.find(c => c.id === COL_DATE);
+      const itemDate = (dateCv && dateCv.text) || nowInToronto().date;
 
       const now = nowInToronto();
       let elapsedMin = (now.hour * 60 + now.minute) - (startHour * 60 + startMinute);
       if (elapsedMin < 0) elapsedMin += 1440; // au cas où le poinçon chevauche minuit
+      const brutH = Math.round((elapsedMin / 60) * 100) / 100;
+
+      // Retrouve les AUTRES segments (chantiers) déjà fermés aujourd'hui pour cet employé
+      // (résultat d'un ou plusieurs changements de chantier via l'action 'switch'), afin de
+      // calculer le total payable de la journée ENTIÈRE, pas seulement ce dernier segment.
+      const dayItems = await mondayGraphQL(mondayToken, `
+        query($board: ID!, $dateCol: String!, $date: [String]!) {
+          items_page_by_column_values(board_id: $board, columns: [{ column_id: $dateCol, column_values: $date }], limit: 50) {
+            items {
+              id
+              column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_FIN}", "${COL_TOTAL_AJUSTE}"]) {
+                id text
+                ... on BoardRelationValue { linked_item_ids }
+              }
+            }
+          }
+        }
+      `, { board: String(POINCONS_BOARD), dateCol: COL_DATE, date: [itemDate] });
+
+      const otherClosedItems = (dayItems.items_page_by_column_values.items || []).filter(it => {
+        if (String(it.id) === String(itemId)) return false;
+        const empCv2 = (it.column_values || []).find(c => c.id === COL_EMPLOYE);
+        const finCv2 = (it.column_values || []).find(c => c.id === COL_HEURE_FIN);
+        const idsOther = (empCv2 && empCv2.linked_item_ids) || [];
+        return idsOther.map(String).includes(employeeItemId) && finCv2 && finCv2.text;
+      });
+      const sumPrevAjusteMin = otherClosedItems.reduce((sum, it) => {
+        const ajCv = (it.column_values || []).find(c => c.id === COL_TOTAL_AJUSTE);
+        const h = Number((ajCv && ajCv.text) || 0);
+        return sum + (isFinite(h) ? h * 60 : 0);
+      }, 0);
+      const sumPrevBrutMin = sumPrevAjusteMin; // segments antérieurs = brut non ajusté (voir action 'switch')
+
+      const grandTotalBrutMin = sumPrevBrutMin + elapsedMin;
       const afternoonSkipped = afternoonTaken === false;
-      const payableRaw = elapsedMin - 30 + (morningSkipped ? 15 : 0) + (afternoonSkipped ? 15 : 0);
-      const payableRounded = Math.max(0, round15(payableRaw));
+      const dayPayableRaw = grandTotalBrutMin - 30 + (morningSkipped ? 15 : 0) + (afternoonSkipped ? 15 : 0);
+      const dayPayableMin = Math.max(0, round15(dayPayableRaw));
+      // La déduction/l'ajustement de la journée est imputé entièrement à CE dernier segment,
+      // de façon à ce que la somme de tous les segments du jour égale le total payable exact.
+      const lastAjusteMin = Math.max(0, dayPayableMin - sumPrevAjusteMin);
 
       const columnValues = {
         [COL_HEURE_FIN]: { hour: now.hour, minute: now.minute },
-        [COL_GPS_FIN]: (lat != null && lng != null) ? `${lat},${lng}` : '',
+        [COL_GPS_FIN]: `${lat},${lng}`,
         [COL_MATIN_NON_PRISE]: { checked: morningSkipped ? 'true' : 'false' },
         [COL_RAISON_MATIN]: morningReason || '',
         [COL_DINER_NON_PRIS]: { checked: lunchSkipped ? 'true' : 'false' },
         [COL_RAISON_DINER]: lunchReason || '',
         [COL_PM_PRISE]: { checked: afternoonTaken ? 'true' : 'false' },
-        [COL_TOTAL_BRUT]: Math.round((elapsedMin / 60) * 100) / 100,
-        [COL_TOTAL_AJUSTE]: Math.round((payableRounded / 60) * 100) / 100
+        [COL_TOTAL_BRUT]: brutH,
+        [COL_TOTAL_AJUSTE]: Math.round((lastAjusteMin / 60) * 100) / 100
       };
       if (typeof kmAdjusted === 'number') columnValues[COL_KM_AJUSTE] = kmAdjusted;
 
@@ -200,7 +354,12 @@ module.exports = async function handler(req, res) {
         }
       `, { board: String(POINCONS_BOARD), item: String(itemId), cv: JSON.stringify(columnValues) });
 
-      res.status(200).json({ itemId, totalBrutH: Math.round((elapsedMin / 60) * 100) / 100, totalAjusteH: Math.round((payableRounded / 60) * 100) / 100 });
+      res.status(200).json({
+        itemId,
+        totalBrutH: brutH,
+        totalAjusteH: Math.round((lastAjusteMin / 60) * 100) / 100,
+        dayTotalAjusteH: Math.round((dayPayableMin / 60) * 100) / 100
+      });
       return;
     }
 
