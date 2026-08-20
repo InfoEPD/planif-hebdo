@@ -23,10 +23,19 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: 'Non authentifié.' });
     return;
   }
+  let claims;
   try {
-    await verifyToken(bearerToken, { secretKey });
+    claims = await verifyToken(bearerToken, { secretKey });
   } catch (err) {
     res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
+    return;
+  }
+
+  // Les comptes employé (accès poinçon mobile) n'ont pas accès à cette API complète —
+  // ils utilisent les points d'accès dédiés et allégés (employee-today, punch, messages).
+  const role = claims && claims.publicMetadata && claims.publicMetadata.role;
+  if (role === 'employee' || role === 'employee_disabled') {
+    res.status(403).json({ error: "Accès non autorisé pour ce type de compte." });
     return;
   }
 
