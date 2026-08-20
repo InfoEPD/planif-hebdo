@@ -1,7 +1,7 @@
 // api/punch.js
 // Début / fin de poinçon (interface mobile employé). Écrit dans le board Monday
-// "⏱️ Poinçons". Nécessite un jeton Clerk avec publicMetadata.role === 'employee'
-// (voir api/employee-today.js pour la note de configuration Clerk requise).
+// "⏱️ Poinçons". Nécessite un jeton Clerk avec claim role === 'employee'
+// (voir api/employee-today.js pour la configuration Clerk requise).
 //
 // Convention CCQ commerciale (Québec) utilisée pour ajuster le total payable :
 //   - Dîner (30 min) : toujours déduit du temps écoulé, que la pause ait été prise ou non.
@@ -81,7 +81,7 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
     return;
   }
-  const meta = claims.publicMetadata || {};
+  const meta = claims || {};
   if (meta.role !== 'employee' || !meta.employeeItemId) {
     res.status(403).json({ error: "Ce compte n'a pas accès à l'interface de poinçon." });
     return;
