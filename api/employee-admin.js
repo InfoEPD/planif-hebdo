@@ -1,6 +1,6 @@
 // api/employee-admin.js
 // Gestion des comptes employés (accès à l'interface mobile de poinçon), réservée
-// à l'administrateur (tout compte Clerk dont publicMetadata.role n'est PAS
+// à l'administrateur (tout compte Clerk dont le claim role n'est PAS
 // "employee"/"employee_disabled" — c.-à-d. les comptes bureau existants).
 //
 // Actions (POST { action, ... }) :
@@ -10,11 +10,12 @@
 //   deleteAccount  { clerkUserId, employeeItemId }
 //
 // IMPORTANT — configuration Clerk requise une seule fois (dashboard Clerk) :
-//   1) Configure → SMS/Phone : activer "Phone number" comme identifiant, et
-//      activer "Password" comme stratégie de connexion.
-//   2) Configure → Sessions → Edit → "Customize session token" : ajouter
-//      "metadata": "{{user.public_metadata}}" (nécessaire pour que ce module et
-//      api/monday.js puissent lire le rôle du compte sans appel API supplémentaire).
+//   1) User & authentication → Phone : activer sign-up/sign-in par téléphone.
+//      User & authentication → Password : activer sign-up par mot de passe.
+//   2) Sessions → Edit → "Customize session token", coller dans l'éditeur de claims :
+//      { "role": "{{user.public_metadata.role}}",
+//        "employeeItemId": "{{user.public_metadata.employeeItemId}}",
+//        "employeeName": "{{user.public_metadata.employeeName}}" }
 
 const { verifyToken, createClerkClient } = require('@clerk/backend');
 
@@ -64,7 +65,7 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
     return;
   }
-  const role = claims.publicMetadata && claims.publicMetadata.role;
+  const role = claims.role;
   if (role === 'employee' || role === 'employee_disabled') {
     res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
     return;
