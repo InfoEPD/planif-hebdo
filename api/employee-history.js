@@ -14,6 +14,9 @@ const COL_HEURE_FIN = 'hour_mm6dfqfg';
 const COL_TOTAL_BRUT = 'numeric_mm6d12a7';
 const COL_TOTAL_AJUSTE = 'numeric_mm6d8c9m';
 const COL_STATUT = 'color_mm6dxpt7';
+const COL_MATIN_NON_PRISE = 'boolean_mm6dbmf2';
+const COL_DINER_NON_PRIS = 'boolean_mm6dczby';
+const COL_PM_PRISE = 'boolean_mm6dpdmf';
 
 function hourText(cv) {
   if (!cv || cv.hour == null) return '';
@@ -28,9 +31,13 @@ function mondayOfWeek(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
+// Aligné sur la convention Dim → Sam utilisée partout ailleurs (admin, board Monday) — la
+// clé de regroupement reste le lundi (mondayOfWeek), mais l'étiquette affichée couvre bien
+// toute la semaine du dimanche au samedi.
 function fmtWeekLabel(monday) {
   const start = new Date(monday + 'T12:00:00');
-  const end = new Date(start); end.setDate(end.getDate() + 4);
+  start.setDate(start.getDate() - 1); // dimanche précédent
+  const end = new Date(start); end.setDate(end.getDate() + 6); // samedi
   const f = d => d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
   return `Semaine du ${f(start)} au ${f(end)}`;
 }
@@ -69,7 +76,7 @@ module.exports = async function handler(req, res) {
               items_page(query_params: { rules: [{ column_id: $empCol, compare_value: $empId, operator: any_of }], order_by: [{ column_id: "${COL_DATE}", direction: desc }] }, limit: 200) {
                 items {
                   id
-                  column_values(ids: ["${COL_PROJET}", "${COL_DATE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_TOTAL_BRUT}", "${COL_TOTAL_AJUSTE}", "${COL_STATUT}"]) {
+                  column_values(ids: ["${COL_PROJET}", "${COL_DATE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_TOTAL_BRUT}", "${COL_TOTAL_AJUSTE}", "${COL_STATUT}", "${COL_MATIN_NON_PRISE}", "${COL_DINER_NON_PRIS}", "${COL_PM_PRISE}"]) {
                     id text
                     ... on BoardRelationValue { linked_items { id name } }
                     ... on HourValue { hour minute }
@@ -94,13 +101,18 @@ module.exports = async function handler(req, res) {
       (it.column_values || []).forEach(c => { cv[c.id] = c; });
       const proj = (cv[COL_PROJET] && cv[COL_PROJET].linked_items && cv[COL_PROJET].linked_items[0]) || null;
       return {
+        itemId: it.id,
         date: (cv[COL_DATE] && cv[COL_DATE].text) || '',
+        projectId: proj ? proj.id : '',
         projectName: proj ? proj.name : '',
         heureDebut: hourText(cv[COL_HEURE_DEBUT]),
         heureFin: hourText(cv[COL_HEURE_FIN]),
         brutH: Number((cv[COL_TOTAL_BRUT] && cv[COL_TOTAL_BRUT].text) || 0) || 0,
         ajusteH: Number((cv[COL_TOTAL_AJUSTE] && cv[COL_TOTAL_AJUSTE].text) || 0) || 0,
-        statut: (cv[COL_STATUT] && cv[COL_STATUT].text) || 'En attente'
+        statut: (cv[COL_STATUT] && cv[COL_STATUT].text) || 'En attente',
+        matinNP: (cv[COL_MATIN_NON_PRISE] && cv[COL_MATIN_NON_PRISE].text) === 'v',
+        dinerNP: (cv[COL_DINER_NON_PRIS] && cv[COL_DINER_NON_PRIS].text) === 'v',
+        pmPrise: (cv[COL_PM_PRISE] && cv[COL_PM_PRISE].text) === 'v'
       };
     }).filter(p => p.date);
 
