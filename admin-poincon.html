@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Poinçons — Planif EPD</title>
+<style>
+  :root {
+    --accent:#ff7d4d; --accent-dark:#e2652f; --bg:#f4f5f7; --panel:#fff; --border:#e2e4ea;
+    --text:#1c1f26; --text-secondary:#6b7080; --danger:#e2445c; --danger-bg:#fdecef;
+    --green:#00c875; --green-bg:#e8faf1; --orange-bg:#fff4e8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  #clerk-signin { max-width:420px; margin:60px auto; }
+  header.topbar { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+  header.topbar .brand { font-weight:700; font-size:17px; }
+  .btn-signout { background:none; border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
+  nav.tabs { display:flex; gap:4px; padding:10px 20px 0; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  nav.tabs button { border:none; background:none; padding:10px 14px; font-size:14px; font-weight:600; color:var(--text-secondary); cursor:pointer; border-bottom:3px solid transparent; }
+  nav.tabs button.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  main { max-width:1200px; margin:0 auto; padding:20px; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .weeknav { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .weeknav button { border:1px solid var(--border); background:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  .weeknav .weeklabel { font-weight:700; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; text-align:left; vertical-align:middle; }
+  th { background:#fafafa; color:var(--text-secondary); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  input[type=number], input[type=text], input[type=password], input[type=tel], select {
+    padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; width:90px;
+  }
+  input[type=text].wide, input[type=tel].wide { width:160px; }
+  .badge { display:inline-block; padding:3px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge-attente { background:var(--orange-bg); color:var(--accent-dark); }
+  .badge-approuve { background:var(--green-bg); color:#0a8a52; }
+  .badge-rejete { background:var(--danger-bg); color:var(--danger); }
+  .badge-exporte { background:#e8f0fe; color:#3457d5; }
+  .btn { border:none; border-radius:8px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; margin-right:4px; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-outline { background:#fff; border:1px solid var(--border); color:var(--text); }
+  .btn-danger { background:var(--danger-bg); color:var(--danger); }
+  .btn-green { background:var(--green-bg); color:#0a8a52; }
+  .section-title { font-size:16px; font-weight:700; margin:24px 0 10px; }
+  .empty-state { color:var(--text-secondary); padding:30px; text-align:center; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .flex-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .reason-note { font-size:12px; color:var(--danger); margin-top:2px; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 16px; border-radius:10px; font-size:14px; z-index:200; }
+  .gps-link { font-size:11px; color:#3457d5; text-decoration:none; }
+  .split-view { display:flex; gap:16px; align-items:flex-start; }
+  .split-sidebar { width:220px; flex:none; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow-y:auto; max-height:74vh; }
+  .split-sidebar button { display:block; width:100%; text-align:left; padding:10px 12px; border:none; background:none; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; color:var(--text); }
+  .split-sidebar button:last-child { border-bottom:none; }
+  .split-sidebar button.active { background:var(--orange-bg); color:var(--accent-dark); font-weight:700; }
+  .split-sidebar button .sub { display:block; font-size:11px; color:var(--text-secondary); font-weight:400; }
+  .split-main { flex:1; min-width:0; }
+  table.summary-table th, table.summary-table td { text-align:center; }
+  table.summary-table th:first-child, table.summary-table td:first-child { text-align:left; }
+  table.summary-table tfoot td { font-weight:700; background:#fafafa; }
+  .progress-note { font-size:12px; color:var(--text-secondary); margin:10px 0; display:flex; gap:14px; align-items:center; }
+  .manual-add-form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border); }
+  .manual-add-form label { display:flex; flex-direction:column; font-size:11px; color:var(--text-secondary); gap:2px; }
+</style>
+</head>
+<body>
+
+<div id="clerk-signin"></div>
+
+<div id="app" style="display:none;">
+  <header class="topbar">
+    <div class="brand">⏱️ Administration — Poinçons EPD</div>
+    <button class="btn-signout" id="btn-signout">Déconnexion</button>
+  </header>
+  <nav class="tabs">
+    <button data-tab="semaine" class="active">Vue de la semaine</button>
+    <button data-tab="parempl">Vue par employé</button>
+    <button data-tab="parprojet">Vue par projet</button>
+    <button data-tab="comptes">Comptes employés</button>
+    <button data-tab="messages">Messages</button>
+    <button data-tab="export">Export paie</button>
+  </nav>
+  <main>
+
+    <div class="tab-panel active" id="tab-semaine">
+      <div class="weeknav">
+        <button id="wk-prev3">◀</button>
+        <span class="weeklabel" id="wk-label3"></span>
+        <button id="wk-next3">▶</button>
+        <button class="btn btn-outline" id="wk-refresh3" style="margin-left:auto;">↻ Rafraîchir</button>
+      </div>
+      <div id="semaine-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-parempl">
+      <div class="weeknav">
+        <button id="wk-prev">◀</button>
+        <span class="weeklabel" id="wk-label"></span>
+        <button id="wk-next">▶</button>
+        <button class="btn btn-outline" id="wk-refresh" style="margin-left:auto;">↻ Rafraîchir</button>
+      </div>
+      <div id="parempl-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-parprojet">
+      <div class="weeknav">
+        <button id="wk-prev2">◀</button>
+        <span class="weeklabel" id="wk-label2"></span>
+        <button id="wk-next2">▶</button>
+        <button class="btn btn-outline" id="wk-refresh2" style="margin-left:auto;">↻ Rafraîchir</button>
+      </div>
+      <div id="parprojet-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-comptes">
+      <div class="weeknav">
+        <input type="text" id="comptes-search" placeholder="🔎 Rechercher un employé…" style="width:280px;">
+      </div>
+      <div id="comptes-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-messages">
+      <div id="messages-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-export">
+      <div class="card">
+        <p style="color:var(--text-secondary);font-size:13px;">
+          Format provisoire (une ligne par poinçon approuvé de la semaine affichée). Le format sera ajusté
+          dès réception d'un exemple de fichier attendu par le système de paie.
+        </p>
+        <button class="btn btn-primary" id="btn-export-txt">⬇ Générer le fichier .txt (semaine affichée)</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ===================== Configuration =====================
+const CLERK_PUBLISHABLE_KEY = 'pk_test_c21pbGluZy10YXBpci03MDkwLmNsZXJrLmFjY291bnRzLmRldiQ';
+
+const EMPLOYEES_BOARD = 8371777574;
+const EMP_PHONE_COL = 't_l_phone_mkmx24h2';
+const EMP_STATUT_COL = 'statut__1'; // 0=Terminé 1=Actif 2=Inactif
+const EMP_ENTREPRISE_COL = 'color_mkpfwcat'; // 1=EPD
+const EMP_CODE_AVANTAGE_COL = 'text_mkp7mh5p';
+const EMP_TITRE_COL = 'statut_mkmx1x42';
+const EMP_ADRESSE_COL = 'lieu_mkmxm4z';
+const COL_CLERK_ID = 'text_mm6dqed0';
+const COL_ACCESS = 'boolean_mm6dd03t';
+
+const POINCONS_BOARD = 18427410930;
+const P_EMPLOYE = 'board_relation_mm6d1zaz';
+const P_PROJET = 'board_relation_mm6ddgy';
+const P_DATE = 'date_mm6d1p6e';
+const P_SEMAINE = 'text_mm6d1bk5';
+const P_HDEBUT = 'hour_mm6dfaha';
+const P_HFIN = 'hour_mm6dfqfg';
+const P_GPS_DEBUT = 'text_mm6d2r65';
+const P_GPS_FIN = 'text_mm6ddr4z';
+const P_MATIN_NP = 'boolean_mm6dbmf2';
+const P_RAISON_MATIN = 'text_mm6dp8f9';
+const P_DINER_NP = 'boolean_mm6dczby';
+const P_RAISON_DINER = 'text_mm6djdex';
+const P_PM_PRISE = 'boolean_mm6dpdmf';
+const P_TOTAL_BRUT = 'numeric_mm6d12a7';
+const P_TOTAL_AJUSTE = 'numeric_mm6d8c9m';
+const P_KM_SUGGERE = 'numeric_mm6d4hvv';
+const P_KM_AJUSTE = 'numeric_mm6dxafw';
+const P_STATUT = 'color_mm6dxpt7';
+
+const PROJECTS_BOARD = 8371776057;
+const PROJECT_STAGE_COL = 'status3';
+const PROJECT_ACTIVE_INDEX = 0; // "Projet en cours"
+
+const MESSAGES_BOARD = 18427410933;
+const M_EMPLOYE = 'board_relation_mm6dwczs';
+const M_MESSAGE = 'long_text_mm6dxv7r';
+const M_DATE = 'date_mm6dxf1a';
+const M_STATUT = 'color_mm6dfb7s';
+
+// ===================== Helpers =====================
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.entries(attrs).forEach(([k, v]) => { if (k === 'src') s.src = v; else s.setAttribute(k, v); });
+    s.async = true; s.crossOrigin = 'anonymous';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function showToast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 3500);
+}
+async function gql(query, variables) {
+  const token = await Clerk.session.getToken();
+  const res = await fetch('/api/monday', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ query, variables })
+  });
+  const data = await res.json();
+  if (data.errors) throw new Error(data.errors.map(e => e.message).join('; '));
+  if (data.error) throw new Error(data.error);
+  return data.data;
+}
+function cvIndex(item) {
+  const m = {};
+  (item.column_values || []).forEach(c => { m[c.id] = c; });
+  return m;
+}
+function round15(minutes) {
+  return Math.round(minutes / 15) * 15;
+}
+// Formate une Date en "YYYY-MM-DD" en utilisant ses composantes LOCALES (jamais toISOString,
+// qui convertit en UTC et peut décaler la date d'un jour selon l'heure/fuseau — c'était la
+// cause du bug de sélection de semaine décalée d'une journée).
+function toLocalISODate(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function mondayOfWeek(d) {
+  // Accepte soit un objet Date, soit une chaîne "YYYY-MM-DD" — dans les deux cas on travaille
+  // en calendrier LOCAL, jamais via un parsing/format qui passe par UTC.
+  const dt = (d instanceof Date) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : new Date(d + 'T12:00:00');
+  const day = dt.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setDate(dt.getDate() + diff);
+  return toLocalISODate(dt);
+}
+function fmtWeekLabel(monday) {
+  const start = new Date(monday + 'T12:00:00');
+  start.setDate(start.getDate() - 1); // dimanche précédent le lundi de la semaine
+  const end = new Date(start); end.setDate(end.getDate() + 6); // samedi
+  const f = d => d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+  return `Semaine du ${f(start)} au ${f(end)}`;
+}
+function hourText(cv) {
+  if (!cv || cv.hour == null) return '';
+  return String(cv.hour).padStart(2, '0') + ':' + String(cv.minute).padStart(2, '0');
+}
+function statusBadge(label) {
+  const cls = { 'En attente': 'badge-attente', 'Approuvé': 'badge-approuve', 'Rejeté': 'badge-rejete', 'Exporté': 'badge-exporte' }[label] || 'badge-attente';
+  return `<span class="badge ${cls}">${label || 'En attente'}</span>`;
+}
+// Retire l'indicatif "1" en tête (format monday: souvent "1" + 10 chiffres) afin
+// de toujours afficher exactement 10 chiffres, sans indicatif.
+function formatPhone10(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  const ten = (digits.length === 11 && digits[0] === '1') ? digits.slice(1) : digits;
+  return ten;
+}
+
+// ===================== État =====================
+let currentWeek = mondayOfWeek(new Date());
+let poinconsCache = [];
+let employeesCache = [];
+let activeProjectsCache = [];
+let selectedEmpId = null;
+let selectedProjId = null;
+
+function weekDatesSunToSat(monday) {
+  const start = new Date(monday + 'T12:00:00');
+  start.setDate(start.getDate() - 1); // dimanche précédent le lundi de la semaine
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    days.push(toLocalISODate(d));
+  }
+  return days;
+}
+const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+function fmtDayHeader(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return DAY_LABELS[d.getDay()] + ' ' + d.getDate();
+}
+
+async function loadActiveProjects() {
+  const data = await gql(`
+    query($board: [ID!], $col: ID!, $val: CompareValue!) {
+      boards(ids: $board) {
+        items_page(query_params: { rules: [{ column_id: $col, compare_value: $val, operator: any_of }] }, limit: 300) {
+          items { id name }
+        }
+      }
+    }
+  `, { board: [String(PROJECTS_BOARD)], col: PROJECT_STAGE_COL, val: [PROJECT_ACTIVE_INDEX] });
+  activeProjectsCache = ((data.boards[0] && data.boards[0].items_page.items) || [])
+    .map(it => ({ id: it.id, name: it.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ===================== Chargement commun des poinçons de la semaine =====================
+async function loadPoinconsForWeek() {
+  document.getElementById('wk-label').textContent = fmtWeekLabel(currentWeek);
+  document.getElementById('wk-label2').textContent = fmtWeekLabel(currentWeek);
+  document.getElementById('wk-label3').textContent = fmtWeekLabel(currentWeek);
+  document.getElementById('parempl-content').innerHTML = '<div class="empty-state">Chargement…</div>';
+  document.getElementById('parprojet-content').innerHTML = '<div class="empty-state">Chargement…</div>';
+  document.getElementById('semaine-content').innerHTML = '<div class="empty-state">Chargement…</div>';
+
+  const data = await gql(`
+    query($board: ID!, $col: String!, $val: [String]!) {
+      items_page_by_column_values(board_id: $board, columns: [{ column_id: $col, column_values: $val }], limit: 300) {
+        items {
+          id name
+          column_values(ids: ["${P_EMPLOYE}","${P_PROJET}","${P_DATE}","${P_HDEBUT}","${P_HFIN}","${P_GPS_DEBUT}","${P_GPS_FIN}","${P_MATIN_NP}","${P_RAISON_MATIN}","${P_DINER_NP}","${P_RAISON_DINER}","${P_PM_PRISE}","${P_TOTAL_BRUT}","${P_TOTAL_AJUSTE}","${P_KM_SUGGERE}","${P_KM_AJUSTE}","${P_STATUT}"]) {
+            id text
+            ... on BoardRelationValue { linked_items { id name } }
+            ... on HourValue { hour minute }
+          }
+        }
+      }
+    }
+  `, { board: String(POINCONS_BOARD), col: P_SEMAINE, val: [currentWeek] });
+
+  poinconsCache = (data.items_page_by_column_values.items || []).map(it => {
+    const cv = cvIndex(it);
+    const emp = (cv[P_EMPLOYE].linked_items || [])[0] || { id: '', name: '?' };
+    const proj = (cv[P_PROJET].linked_items || [])[0] || { id: '', name: '?' };
+    return {
+      itemId: it.id,
+      empId: emp.id, empName: emp.name,
+      projId: proj.id, projName: proj.name,
+      date: cv[P_DATE].text || '',
+      heureDebut: hourText(cv[P_HDEBUT]), heureFin: hourText(cv[P_HFIN]),
+      gpsDebut: cv[P_GPS_DEBUT].text || '', gpsFin: cv[P_GPS_FIN].text || '',
+      matinNP: cv[P_MATIN_NP].text === 'v', raisonMatin: cv[P_RAISON_MATIN].text || '',
+      dinerNP: cv[P_DINER_NP].text === 'v', raisonDiner: cv[P_RAISON_DINER].text || '',
+      pmPrise: cv[P_PM_PRISE].text === 'v',
+      totalBrut: cv[P_TOTAL_BRUT].text || '', totalAjuste: cv[P_TOTAL_AJUSTE].text || '',
+      kmSuggere: cv[P_KM_SUGGERE].text || '', kmAjuste: cv[P_KM_AJUSTE].text || '',
+      statut: cv[P_STATUT].text || 'En attente'
+    };
+  }).sort((a, b) => a.empName.localeCompare(b.empName) || a.date.localeCompare(b.date));
+
+  if (!employeesCache.length) await loadComptes();
+  if (!activeProjectsCache.length) await loadActiveProjects();
+
+  renderVueSemaine();
+  renderParEmploye();
+  renderParProjet();
+}
+
+// ===================== Tab: Vue de la semaine =====================
+function renderVueSemaine() {
+  const el = document.getElementById('semaine-content');
+  const totals = {};
+  poinconsCache.forEach(p => {
+    if (!p.empId) return;
+    totals[p.empId] = totals[p.empId] || { name: p.empName, total: 0 };
+    totals[p.empId].total += Number(p.totalAjuste) || 0;
+  });
+  const rows = Object.keys(totals).map(empId => {
+    const emp = employeesCache.find(e => e.id === empId);
+    return { empId, name: totals[empId].name, codeAvantage: (emp && emp.codeAvantage) || '', total: totals[empId].total };
+  }).sort((a, b) => (a.codeAvantage || '').localeCompare(b.codeAvantage || '', undefined, { numeric: true }));
+
+  if (!rows.length) { el.innerHTML = '<div class="empty-state">Aucun poinçon cette semaine.</div>'; return; }
+
+  let grand = 0;
+  let html = `<table><thead><tr><th>Employé</th><th>Total heures (ajustées)</th></tr></thead><tbody>`;
+  rows.forEach(r => {
+    grand += r.total;
+    html += `<tr><td>${r.name}<br><span style="font-size:11px;color:var(--text-secondary);">${r.codeAvantage || '—'}</span></td><td>${r.total.toFixed(2)} h</td></tr>`;
+  });
+  html += `</tbody><tfoot><tr><td>Total</td><td><strong>${grand.toFixed(2)} h</strong></td></tr></tfoot></table>`;
+  el.innerHTML = html;
+}
+
+async function savePoincon(itemId, tr, forceStatus) {
+  const total = Number(tr.querySelector('.inp-total').value) || 0;
+  const km = Number(tr.querySelector('.inp-km').value) || 0;
+  const cv = { [P_TOTAL_AJUSTE]: total, [P_KM_AJUSTE]: km };
+  if (forceStatus) cv[P_STATUT] = { label: forceStatus };
+  try {
+    await gql(`mutation($board: ID!, $item: ID!, $cv: JSON!) { change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id } }`,
+      { board: String(POINCONS_BOARD), item: String(itemId), cv: JSON.stringify(cv) });
+    showToast('Enregistré ✔');
+    await loadPoinconsForWeek();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+}
+
+// ===================== Vue détail commune (employé OU projet) =====================
+// groupField: le champ par lequel regrouper les LIGNES du tableau sommaire ('projName' en
+// vue employé, 'empName' en vue projet). opts.manualMode / fixedEmpId|fixedProjId servent au
+// formulaire d'ajout manuel.
+function renderEntityDetail(rows, days, groupField, counterpartLabel, opts) {
+  const addForm = manualAddFormHtml(opts, days);
+  if (!rows.length) {
+    return '<div class="empty-state">Aucun poinçon cette semaine.</div>' + addForm;
+  }
+
+  // --- Tableau sommaire (heures ajustées) ---
+  const groups = {};
+  rows.forEach(p => {
+    const key = p[groupField] || '—';
+    groups[key] = groups[key] || {};
+    groups[key][p.date] = (groups[key][p.date] || 0) + (Number(p.totalAjuste) || 0);
+  });
+  const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  const dayTotals = {};
+  days.forEach(d => { dayTotals[d] = 0; });
+  let grandTotal = 0;
+
+  let table = `<table class="summary-table"><thead><tr><th>${counterpartLabel === 'projet' ? 'Projet' : 'Employé'}</th>${days.map(d => `<th>${fmtDayHeader(d)}</th>`).join('')}<th>Total</th></tr></thead><tbody>`;
+  groupNames.forEach(name => {
+    let rowTotal = 0;
+    table += `<tr><td>${name}</td>`;
+    days.forEach(d => {
+      const v = groups[name][d] || 0;
+      rowTotal += v; dayTotals[d] += v; grandTotal += v;
+      table += `<td>${v ? v.toFixed(2) : '—'}</td>`;
+    });
+    table += `<td><strong>${rowTotal.toFixed(2)}</strong></td></tr>`;
+  });
+  table += `</tbody><tfoot><tr><td>Total</td>${days.map(d => `<td>${dayTotals[d] ? dayTotals[d].toFixed(2) : '—'}</td>`).join('')}<td><strong>${grandTotal.toFixed(2)} h</strong></td></tr></tfoot></table>`;
+
+  // --- Suivi de l'approbation ---
+  const nApprouve = rows.filter(p => p.statut === 'Approuvé').length;
+  const nAttente = rows.filter(p => !p.statut || p.statut === 'En attente').length;
+  const nRejete = rows.filter(p => p.statut === 'Rejeté').length;
+  const progress = `<div class="progress-note">${statusBadge('Approuvé')} ${nApprouve}<span>${statusBadge('En attente')} ${nAttente}</span><span>${statusBadge('Rejeté')} ${nRejete}</span></div>`;
+
+  // --- Liste détaillée ---
+  let list = `<div class="section-title">Détail des poinçons</div><table><thead><tr>
+    <th>Date</th><th>${counterpartLabel === 'projet' ? 'Employé' : 'Projet'}</th><th>Début</th><th>Fin</th><th>Brut</th><th>Ajusté</th><th>KM</th><th>Pauses</th><th>Statut</th><th></th>
+  </tr></thead><tbody>`;
+  rows.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(p => {
+    const pauseNotes = [];
+    if (p.matinNP) pauseNotes.push('Matin non pris: ' + (p.raisonMatin || '—'));
+    if (p.dinerNP) pauseNotes.push('Dîner non pris: ' + (p.raisonDiner || '—'));
+    if (!p.pmPrise) pauseNotes.push('PM non pris');
+    const gpsLinks = [
+      p.gpsDebut ? `<a class="gps-link" target="_blank" href="https://maps.google.com/?q=${p.gpsDebut}">📍début</a>` : '',
+      p.gpsFin ? `<a class="gps-link" target="_blank" href="https://maps.google.com/?q=${p.gpsFin}">📍fin</a>` : ''
+    ].filter(Boolean).join(' ');
+    const counterpart = counterpartLabel === 'projet' ? p.empName : p.projName;
+    list += `<tr data-item="${p.itemId}">
+      <td>${p.date}<br>${gpsLinks}</td>
+      <td>${counterpart}</td>
+      <td>${p.heureDebut}</td>
+      <td>${p.heureFin}</td>
+      <td>${p.totalBrut}</td>
+      <td><input type="number" step="0.25" class="inp-total" value="${p.totalAjuste}"></td>
+      <td><input type="number" step="0.1" class="inp-km" value="${p.kmSuggere || p.kmAjuste || ''}"></td>
+      <td style="max-width:160px;font-size:11px;color:var(--danger);">${pauseNotes.join('<br>') || ''}</td>
+      <td>${statusBadge(p.statut)}</td>
+      <td>
+        <button class="btn btn-green btn-approve">✔</button>
+        <button class="btn btn-danger btn-reject">✘</button>
+        <button class="btn btn-outline btn-save">Enreg.</button>
+      </td>
+    </tr>`;
+  });
+  list += `</tbody></table>`;
+
+  return table + progress + list + addForm;
+}
+
+function manualAddFormHtml(opts, days) {
+  const minDate = days[0], maxDate = days[6];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const defaultDate = (todayStr >= minDate && todayStr <= maxDate) ? todayStr : days[1]; // lundi par défaut
+
+  const projectOptions = activeProjectsCache.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const employeeOptions = employeesCache.filter(e => e.statut === 'Actif' || e.statut === 'Inactif')
+    .slice().sort((a, b) => a.name.localeCompare(b.name))
+    .map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+
+  const empField = opts.manualMode === 'employee'
+    ? `<div><label>Employé</label><input type="hidden" class="manual-emp" value="${opts.fixedEmpId || ''}"><div style="padding:6px 0;font-weight:600;font-size:13px;">${opts.fixedEmpName || ''}</div></div>`
+    : `<label>Employé<select class="manual-emp wide"><option value="">— choisir —</option>${employeeOptions}</select></label>`;
+
+  const projField = opts.manualMode === 'project'
+    ? `<div><label>Projet</label><input type="hidden" class="manual-proj" value="${opts.fixedProjId || ''}"><div style="padding:6px 0;font-weight:600;font-size:13px;">${opts.fixedProjName || ''}</div></div>`
+    : `<label>Projet<select class="manual-proj wide"><option value="">— choisir —</option>${projectOptions}</select></label>`;
+
+  return `<div class="manual-add-form">
+    ${empField}
+    ${projField}
+    <label>Date<input type="date" class="manual-date" value="${defaultDate}" min="${minDate}" max="${maxDate}"></label>
+    <label>Début<input type="time" class="manual-hdebut"></label>
+    <label>Fin<input type="time" class="manual-hfin"></label>
+    <label style="flex-direction:row;align-items:center;gap:4px;"><input type="checkbox" class="manual-matin" checked> Pause matin prise</label>
+    <label style="flex-direction:row;align-items:center;gap:4px;"><input type="checkbox" class="manual-diner" checked> Dîner pris</label>
+    <label style="flex-direction:row;align-items:center;gap:4px;"><input type="checkbox" class="manual-pm"> Pause PM prise</label>
+    <button class="btn btn-primary btn-manual-add">+ Ajouter un poinçon (oubli)</button>
+  </div>`;
+}
+
+function wireDetailEvents(el) {
+  el.querySelectorAll('tr[data-item]').forEach(tr => {
+    const itemId = tr.getAttribute('data-item');
+    tr.querySelector('.btn-approve').addEventListener('click', () => savePoincon(itemId, tr, 'Approuvé'));
+    tr.querySelector('.btn-reject').addEventListener('click', () => savePoincon(itemId, tr, 'Rejeté'));
+    tr.querySelector('.btn-save').addEventListener('click', () => savePoincon(itemId, tr, null));
+  });
+  const addBtn = el.querySelector('.btn-manual-add');
+  if (addBtn) addBtn.addEventListener('click', () => handleManualAdd(el));
+}
+
+async function handleManualAdd(el) {
+  const empEl = el.querySelector('.manual-emp');
+  const projEl = el.querySelector('.manual-proj');
+  const empId = empEl.value;
+  const projId = projEl.value;
+  const dateVal = el.querySelector('.manual-date').value;
+  const hDebut = el.querySelector('.manual-hdebut').value;
+  const hFin = el.querySelector('.manual-hfin').value;
+  if (!empId || !projId || !dateVal || !hDebut || !hFin) { showToast('Veuillez remplir tous les champs.'); return; }
+
+  const [dh, dm] = hDebut.split(':').map(Number);
+  const [fh, fm] = hFin.split(':').map(Number);
+  let elapsed = (fh * 60 + fm) - (dh * 60 + dm);
+  if (elapsed < 0) elapsed += 1440;
+  const brutH = Math.round((elapsed / 60) * 100) / 100;
+
+  // Même logique CCQ que le poinçon mobile : dîner déduit seulement si la journée se rend à
+  // 13h00+, pause PM ajustée seulement si elle se rend à 14h00+.
+  const morningTaken = el.querySelector('.manual-matin').checked;
+  const lunchTaken = el.querySelector('.manual-diner').checked;
+  const afternoonTaken = el.querySelector('.manual-pm').checked;
+  const finishMinutes = fh * 60 + fm;
+  const lunchApplicable = finishMinutes >= 13 * 60;
+  const afternoonApplicable = finishMinutes >= 14 * 60;
+  const morningSkipped = !morningTaken;
+  const afternoonSkipped = afternoonApplicable && !afternoonTaken;
+  const payableRaw = elapsed - (lunchApplicable ? 30 : 0) + (morningSkipped ? 15 : 0) + (afternoonSkipped ? 15 : 0);
+  const payableMin = Math.max(0, round15(payableRaw));
+  const ajusteH = Math.round((payableMin / 60) * 100) / 100;
+
+  const cv = {
+    [P_EMPLOYE]: { item_ids: [Number(empId)] },
+    [P_PROJET]: { item_ids: [Number(projId)] },
+    [P_DATE]: { date: dateVal },
+    [P_SEMAINE]: mondayOfWeek(dateVal),
+    [P_HDEBUT]: { hour: dh, minute: dm },
+    [P_HFIN]: { hour: fh, minute: fm },
+    [P_MATIN_NP]: { checked: morningSkipped ? 'true' : 'false' },
+    [P_DINER_NP]: { checked: (lunchApplicable && !lunchTaken) ? 'true' : 'false' },
+    [P_PM_PRISE]: { checked: afternoonTaken ? 'true' : 'false' },
+    [P_TOTAL_BRUT]: brutH,
+    [P_TOTAL_AJUSTE]: ajusteH,
+    [P_STATUT]: { label: 'En attente' }
+  };
+  try {
+    await gql(`mutation($board: ID!, $name: String!, $cv: JSON!) { create_item(board_id: $board, item_name: $name, column_values: $cv) { id } }`,
+      { board: String(POINCONS_BOARD), name: `Poinçon manuel ${dateVal}`, cv: JSON.stringify(cv) });
+    showToast('Poinçon ajouté ✔');
+    await loadPoinconsForWeek();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+}
+
+// ===================== Tab: Vue par employé =====================
+function renderParEmploye() {
+  const el = document.getElementById('parempl-content');
+  const days = weekDatesSunToSat(currentWeek);
+
+  // Employés à afficher : ceux qui ont un compte ACTIF sur l'app mobile, PLUS ceux qui ont au
+  // moins un poinçon dans la semaine affichée (poinconsCache est déjà filtré sur currentWeek) —
+  // ceci préserve l'historique : un employé désactivé/parti reste visible dans les semaines
+  // passées où il a des poinçons, sans polluer la liste des semaines où il n'en a aucun.
+  const empIdsWithPunchThisWeek = new Set(poinconsCache.map(p => p.empId));
+  const sidebarEmployees = employeesCache.filter(e => (e.clerkUserId && e.accessEnabled) || empIdsWithPunchThisWeek.has(e.id))
+    .slice()
+    .sort((a, b) => (a.codeAvantage || '').localeCompare(b.codeAvantage || '', undefined, { numeric: true }));
+
+  if (!selectedEmpId || !sidebarEmployees.some(e => e.id === selectedEmpId)) {
+    const withPunch = sidebarEmployees.find(e => poinconsCache.some(p => p.empId === e.id));
+    selectedEmpId = (withPunch || sidebarEmployees[0] || {}).id || null;
+  }
+
+  const sidebarHtml = sidebarEmployees.map(e => {
+    const count = poinconsCache.filter(p => p.empId === e.id).length;
+    return `<button class="${e.id === selectedEmpId ? 'active' : ''}" data-emp="${e.id}">${e.name}<span class="sub">${e.codeAvantage || '—'}${count ? ' · ' + count + ' poinçon' + (count > 1 ? 's' : '') : ''}</span></button>`;
+  }).join('');
+
+  const selectedEmp = sidebarEmployees.find(e => e.id === selectedEmpId);
+  const empHeader = selectedEmp
+    ? `<div style="margin-bottom:14px;"><div style="font-size:20px;font-weight:800;">${selectedEmp.name}</div><div style="font-size:12px;color:var(--text-secondary);">${selectedEmp.codeAvantage || '—'}</div></div>`
+    : '';
+  const empRows = poinconsCache.filter(p => p.empId === selectedEmpId);
+  const mainHtml = selectedEmpId
+    ? empHeader + renderEntityDetail(empRows, days, 'projName', 'employe', { manualMode: 'employee', fixedEmpId: selectedEmpId, fixedEmpName: selectedEmp && selectedEmp.name })
+    : '<div class="empty-state">Aucun employé actif ni avec poinçon cette semaine.</div>';
+
+  el.innerHTML = `<div class="split-view">
+    <div class="split-sidebar">${sidebarHtml || '<div class="empty-state">Aucun employé.</div>'}</div>
+    <div class="split-main">${mainHtml}</div>
+  </div>`;
+
+  el.querySelectorAll('.split-sidebar button[data-emp]').forEach(btn => {
+    btn.addEventListener('click', () => { selectedEmpId = btn.getAttribute('data-emp'); renderParEmploye(); });
+  });
+  wireDetailEvents(el);
+}
+
+// ===================== Tab: Vue par projet =====================
+function renderParProjet() {
+  const el = document.getElementById('parprojet-content');
+  const days = weekDatesSunToSat(currentWeek);
+
+  const projMap = new Map();
+  poinconsCache.forEach(p => { if (p.projId && !projMap.has(p.projId)) projMap.set(p.projId, p.projName); });
+  const sidebarProjects = Array.from(projMap.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!selectedProjId || !sidebarProjects.some(p => p.id === selectedProjId)) {
+    selectedProjId = (sidebarProjects[0] || {}).id || null;
+  }
+
+  const sidebarHtml = sidebarProjects.map(p => {
+    const count = poinconsCache.filter(x => x.projId === p.id).length;
+    return `<button class="${p.id === selectedProjId ? 'active' : ''}" data-proj="${p.id}">${p.name}<span class="sub">${count} poinçon${count > 1 ? 's' : ''}</span></button>`;
+  }).join('');
+
+  const selectedProj = sidebarProjects.find(p => p.id === selectedProjId);
+  const projRows = poinconsCache.filter(p => p.projId === selectedProjId);
+  const mainHtml = selectedProjId
+    ? renderEntityDetail(projRows, days, 'empName', 'projet', { manualMode: 'project', fixedProjId: selectedProjId, fixedProjName: selectedProj && selectedProj.name })
+    : '<div class="empty-state">Aucun projet cette semaine.</div>';
+
+  el.innerHTML = `<div class="split-view">
+    <div class="split-sidebar">${sidebarHtml || '<div class="empty-state">Aucun projet cette semaine.</div>'}</div>
+    <div class="split-main">${mainHtml}</div>
+  </div>`;
+
+  el.querySelectorAll('.split-sidebar button[data-proj]').forEach(btn => {
+    btn.addEventListener('click', () => { selectedProjId = btn.getAttribute('data-proj'); renderParProjet(); });
+  });
+  wireDetailEvents(el);
+}
+
+// ===================== Tab: Comptes employés =====================
+async function loadComptes() {
+  document.getElementById('comptes-content').innerHTML = '<div class="empty-state">Chargement…</div>';
+  const data = await gql(`
+    query($board: [ID!]) {
+      boards(ids: $board) {
+        items_page(query_params: { rules: [
+          { column_id: "${EMP_ENTREPRISE_COL}", compare_value: [1], operator: any_of },
+          { column_id: "${EMP_STATUT_COL}", compare_value: [0,1,2], operator: any_of }
+        ] }, limit: 300) {
+          items { id name column_values(ids: ["${EMP_PHONE_COL}","${COL_CLERK_ID}","${COL_ACCESS}","${EMP_STATUT_COL}","${EMP_CODE_AVANTAGE_COL}","${EMP_TITRE_COL}","${EMP_ADRESSE_COL}"]) { id text } }
+        }
+      }
+    }
+  `, { board: [String(EMPLOYEES_BOARD)] });
+
+  employeesCache = ((data.boards[0] && data.boards[0].items_page.items) || []).map(it => {
+    const cv = cvIndex(it);
+    return {
+      id: it.id, name: it.name,
+      phone: formatPhone10(cv[EMP_PHONE_COL].text),
+      clerkUserId: cv[COL_CLERK_ID].text || '',
+      accessEnabled: cv[COL_ACCESS].text === 'v',
+      statut: cv[EMP_STATUT_COL].text || '',
+      codeAvantage: cv[EMP_CODE_AVANTAGE_COL].text || '',
+      titre: cv[EMP_TITRE_COL].text || '',
+      adresse: cv[EMP_ADRESSE_COL].text || ''
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  renderComptes();
+}
+
+const COMPTES_COLS_HEAD = `<th>Employé</th><th>Titre d'emploi</th><th>Code avantage</th><th>Adresse complète</th><th>Téléphone</th><th>Accès</th><th>Actions</th>`;
+
+function comptesRowHtml(e, isTermine) {
+  return `<tr data-emp="${e.id}" data-clerk="${e.clerkUserId}">
+      <td>${e.name}</td>
+      <td>${e.titre || '—'}</td>
+      <td>${e.codeAvantage || '—'}</td>
+      <td style="max-width:220px;">${e.adresse || '—'}</td>
+      <td>${e.phone}</td>
+      <td>${e.clerkUserId ? (e.accessEnabled ? '<span class="badge badge-approuve">Actif</span>' : '<span class="badge badge-rejete">Désactivé</span>') : '<span class="badge badge-attente">Aucun compte</span>'}</td>
+      <td>
+        ${!e.clerkUserId ? (isTermine ? '<span style="color:var(--text-secondary);font-size:12px;">Employé terminé — accès non disponible</span>' : `
+          <input type="tel" class="inp-phone" placeholder="Téléphone" value="${e.phone}">
+          <input type="password" class="inp-pass" placeholder="Mot de passe (min. 5)">
+          <button class="btn btn-primary btn-create">Créer l'accès</button>
+        `) : `
+          <input type="password" class="inp-newpass" placeholder="Nouveau mot de passe">
+          <button class="btn btn-outline btn-reset">Réinitialiser</button>
+          <button class="btn ${e.accessEnabled ? 'btn-danger' : 'btn-green'} btn-toggle">${e.accessEnabled ? 'Désactiver' : 'Activer'}</button>
+        `}
+      </td>
+    </tr>`;
+}
+
+function renderComptes() {
+  const el = document.getElementById('comptes-content');
+  const term = (document.getElementById('comptes-search').value || '').trim().toLowerCase();
+  const matches = e => !term || [e.name, e.titre, e.codeAvantage, e.adresse, e.phone].join(' ').toLowerCase().includes(term);
+
+  const actifs = employeesCache.filter(e => e.statut === 'Actif' && matches(e));
+  const inactifs = employeesCache.filter(e => e.statut === 'Inactif' && matches(e));
+  const termines = employeesCache.filter(e => e.statut === 'Terminé' && matches(e));
+
+  let html = `<div class="section-title">Actifs</div>
+    <table><thead><tr>${COMPTES_COLS_HEAD}</tr></thead>
+    <tbody>${actifs.map(e => comptesRowHtml(e, false)).join('') || '<tr><td colspan="7" class="empty-state">Aucun résultat.</td></tr>'}</tbody></table>
+
+    <div class="section-title">Inactifs</div>
+    <table><thead><tr>${COMPTES_COLS_HEAD}</tr></thead>
+    <tbody>${inactifs.map(e => comptesRowHtml(e, false)).join('') || '<tr><td colspan="7" class="empty-state">Aucun résultat.</td></tr>'}</tbody></table>
+
+    <details style="margin-top:20px;" ${term ? 'open' : ''}>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px;color:var(--text-secondary);">Employés terminés (historique — ${termines.length})</summary>
+      <table style="margin-top:10px;"><thead><tr>${COMPTES_COLS_HEAD}</tr></thead>
+      <tbody>${termines.map(e => comptesRowHtml(e, true)).join('') || '<tr><td colspan="7" class="empty-state">Aucun résultat.</td></tr>'}</tbody></table>
+    </details>`;
+  el.innerHTML = html;
+
+  el.querySelectorAll('tr[data-emp]').forEach(tr => {
+    const empId = tr.getAttribute('data-emp');
+    const clerkUserId = tr.getAttribute('data-clerk');
+    const btnCreate = tr.querySelector('.btn-create');
+    if (btnCreate) btnCreate.addEventListener('click', async () => {
+      const phone = tr.querySelector('.inp-phone').value.trim();
+      const pass = tr.querySelector('.inp-pass').value;
+      if (!phone || !pass) { showToast('Téléphone et mot de passe requis.'); return; }
+      try {
+        const empName = tr.children[0].textContent;
+        await employeeAdminCall({ action: 'createAccount', employeeItemId: empId, employeeName: empName, phone, password: pass });
+        showToast('Compte créé ✔'); loadComptes();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+    const btnReset = tr.querySelector('.btn-reset');
+    if (btnReset) btnReset.addEventListener('click', async () => {
+      const pass = tr.querySelector('.inp-newpass').value;
+      if (!pass) { showToast('Nouveau mot de passe requis.'); return; }
+      try { await employeeAdminCall({ action: 'resetPassword', clerkUserId, password: pass }); showToast('Mot de passe changé ✔'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+    const btnToggle = tr.querySelector('.btn-toggle');
+    if (btnToggle) btnToggle.addEventListener('click', async () => {
+      const emp = employeesCache.find(e => e.id === empId);
+      try { await employeeAdminCall({ action: 'setAccess', clerkUserId, employeeItemId: empId, enabled: !emp.accessEnabled }); showToast('Mis à jour ✔'); loadComptes(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+async function employeeAdminCall(body) {
+  const token = await Clerk.session.getToken();
+  const res = await fetch('/api/employee-admin', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
+  return data;
+}
+
+// ===================== Tab: Messages =====================
+async function loadMessages() {
+  document.getElementById('messages-content').innerHTML = '<div class="empty-state">Chargement…</div>';
+  const data = await gql(`
+    query($board: [ID!]) {
+      boards(ids: $board) {
+        items_page(limit: 100) {
+          items { id created_at column_values(ids: ["${M_EMPLOYE}","${M_MESSAGE}","${M_DATE}","${M_STATUT}"]) {
+            id text ... on BoardRelationValue { linked_items { id name } }
+          } }
+        }
+      }
+    }
+  `, { board: [String(MESSAGES_BOARD)] });
+
+  const items = ((data.boards[0] && data.boards[0].items_page.items) || []).map(it => {
+    const cv = cvIndex(it);
+    const emp = (cv[M_EMPLOYE].linked_items || [])[0] || { name: '?' };
+    return { itemId: it.id, empName: emp.name, message: cv[M_MESSAGE].text || '', date: cv[M_DATE].text || '', statut: cv[M_STATUT].text || 'Nouveau' };
+  }).sort((a, b) => (a.statut === b.statut ? 0 : a.statut === 'Nouveau' ? -1 : 1) || b.date.localeCompare(a.date));
+
+  const el = document.getElementById('messages-content');
+  if (!items.length) { el.innerHTML = '<div class="empty-state">Aucun message.</div>'; return; }
+  el.innerHTML = items.map(m => `
+    <div class="card" data-item="${m.itemId}">
+      <div class="flex-row" style="justify-content:space-between;">
+        <strong>${m.empName}</strong>
+        <span>${statusBadge(m.statut)}</span>
+      </div>
+      <div style="color:var(--text-secondary);font-size:12px;margin:4px 0;">${m.date}</div>
+      <div>${(m.message || '').replace(/</g, '&lt;')}</div>
+      ${m.statut === 'Nouveau' ? '<button class="btn btn-outline btn-treated" style="margin-top:8px;">Marquer traité</button>' : ''}
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.btn-treated').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const itemId = btn.closest('[data-item]').getAttribute('data-item');
+      try {
+        await gql(`mutation($board: ID!, $item: ID!, $cv: JSON!) { change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id } }`,
+          { board: String(MESSAGES_BOARD), item: String(itemId), cv: JSON.stringify({ [M_STATUT]: { label: 'Traité' } }) });
+        showToast('Marqué traité ✔'); loadMessages();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+// ===================== Export .txt =====================
+function exportTxt() {
+  const approved = poinconsCache.filter(p => p.statut === 'Approuvé');
+  if (!approved.length) { showToast('Aucun poinçon approuvé cette semaine.'); return; }
+  const lines = ['EmployeID;EmployeNom;Date;ProjetID;ProjetNom;HeuresAjustees;KM'];
+  approved.forEach(p => {
+    lines.push([p.empId, p.empName, p.date, p.projId, p.projName, p.totalAjuste, p.kmAjuste || p.kmSuggere].join(';'));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `poincons_${currentWeek}.txt`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ===================== Navigation =====================
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'comptes' && !employeesCache.length) loadComptes();
+    if (btn.dataset.tab === 'messages') loadMessages();
+  });
+});
+function goPrevWeek() { const d = new Date(currentWeek + 'T12:00:00'); d.setDate(d.getDate() - 7); currentWeek = mondayOfWeek(d); loadPoinconsForWeek(); }
+function goNextWeek() { const d = new Date(currentWeek + 'T12:00:00'); d.setDate(d.getDate() + 7); currentWeek = mondayOfWeek(d); loadPoinconsForWeek(); }
+document.getElementById('wk-prev').addEventListener('click', goPrevWeek);
+document.getElementById('wk-next').addEventListener('click', goNextWeek);
+document.getElementById('wk-refresh').addEventListener('click', loadPoinconsForWeek);
+document.getElementById('wk-prev2').addEventListener('click', goPrevWeek);
+document.getElementById('wk-next2').addEventListener('click', goNextWeek);
+document.getElementById('wk-refresh2').addEventListener('click', loadPoinconsForWeek);
+document.getElementById('wk-prev3').addEventListener('click', goPrevWeek);
+document.getElementById('wk-next3').addEventListener('click', goNextWeek);
+document.getElementById('wk-refresh3').addEventListener('click', loadPoinconsForWeek);
+document.getElementById('btn-export-txt').addEventListener('click', exportTxt);
+document.getElementById('btn-signout').addEventListener('click', () => Clerk.signOut());
+document.getElementById('comptes-search').addEventListener('input', () => { if (employeesCache.length) renderComptes(); });
+
+// ===================== Auth / démarrage =====================
+let appStarted = false;
+async function initApp() {
+  const meta = Clerk.user.publicMetadata || {};
+  if (meta.role === 'employee' || meta.role === 'employee_disabled') {
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Accès réservé aux administrateurs.</div>';
+    return;
+  }
+  appStarted = true;
+  document.getElementById('clerk-signin').classList.add('hidden');
+  document.getElementById('app').style.display = 'block';
+  await loadPoinconsForWeek();
+}
+
+async function boot() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` });
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY });
+  await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+  // IMPORTANT : Clerk redéclenche périodiquement ce callback (rafraîchissement de session en
+  // arrière-plan), même sans changement réel d'utilisateur. Sans le garde-fou `appStarted`,
+  // ça relançait loadPoinconsForWeek() en boucle (~toutes les 30s) et vidait la page en plein
+  // travail. On n'initialise donc qu'une seule fois, à la vraie connexion.
+  window.Clerk.addListener(({ user }) => { if (user && !appStarted) initApp(); });
+  if (window.Clerk.user) { initApp(); }
+  else { window.Clerk.mountSignIn(document.getElementById('clerk-signin'), { appearance: { elements: { rootBox: { width: '100%' } } } }); }
+}
+boot();
+</script>
+</body>
+</html>
