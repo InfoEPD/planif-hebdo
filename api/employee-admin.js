@@ -16,6 +16,8 @@
 //      { "role": "{{user.public_metadata.role}}",
 //        "employeeItemId": "{{user.public_metadata.employeeItemId}}",
 //        "employeeName": "{{user.public_metadata.employeeName}}" }
+//   3) Vérifier sur dashboard.clerk.com/~/updates que la "Reset password session task"
+//      est activée (nécessaire pour forcer le changement de mot de passe temporaire).
 
 const { verifyToken, createClerkClient } = require('@clerk/backend');
 
@@ -91,6 +93,9 @@ module.exports = async function handler(req, res) {
         skipPasswordChecks: true, // permet des mots de passe simples/courts (min. 5) sans la validation de robustesse de Clerk
         publicMetadata: { role: 'employee', employeeItemId: String(employeeItemId), employeeName: employeeName || '' }
       });
+      // Le mot de passe fourni ici est temporaire : on le marque "compromis" pour forcer
+      // l'employé à en choisir un nouveau à sa toute première connexion.
+      await clerk.users.setPasswordCompromised(user.id, { revokeAllSessions: true });
       await mondaySetEmployeeAccess(mondayToken, employeeItemId, user.id, true);
       res.status(200).json({ clerkUserId: user.id });
       return;
@@ -101,6 +106,8 @@ module.exports = async function handler(req, res) {
       if (!clerkUserId || !password) { res.status(400).json({ error: 'clerkUserId et password sont requis.' }); return; }
       if (password.length < 5) { res.status(400).json({ error: 'Le mot de passe doit contenir au moins 5 caractères.' }); return; }
       await clerk.users.updateUser(clerkUserId, { password, skipPasswordChecks: true });
+      // Nouveau mot de passe temporaire lui aussi : forcer un changement à la prochaine connexion.
+      await clerk.users.setPasswordCompromised(clerkUserId, { revokeAllSessions: true });
       res.status(200).json({ ok: true });
       return;
     }
