@@ -9,6 +9,9 @@ const COL_EMPLOYE = 'board_relation_mm6dwczs';
 const COL_MESSAGE = 'long_text_mm6dxv7r';
 const COL_DATE = 'date_mm6dxf1a';
 const COL_STATUT = 'color_mm6dfb7s';
+const COL_AUTEUR = 'color_mm6dd12s';
+const COL_LU_ADMIN = 'boolean_mm6dm8mb';
+const COL_LU_EMPLOYE = 'boolean_mm6dc4ar';
 
 function nowInToronto() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -53,7 +56,12 @@ module.exports = async function handler(req, res) {
     [COL_EMPLOYE]: { item_ids: [Number(employeeItemId)] },
     [COL_MESSAGE]: { text: message.trim() },
     [COL_DATE]: { date: now.date, time: now.time + ':00' },
-    [COL_STATUT]: { label: 'Nouveau' }
+    [COL_STATUT]: { label: 'Nouveau' },
+    [COL_AUTEUR]: { label: 'Employé' },
+    // L'employé vient d'écrire ce message : il l'a "lu" par définition. L'admin ne l'a pas
+    // encore vu — c'est ce qui déclenche la pastille rouge côté "Vue par employé".
+    [COL_LU_ADMIN]: { checked: 'false' },
+    [COL_LU_EMPLOYE]: { checked: 'true' }
   };
 
   try {
