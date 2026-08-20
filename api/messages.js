@@ -36,7 +36,7 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
     return;
   }
-  const meta = claims.publicMetadata || {};
+  const meta = claims || {};
   if (meta.role !== 'employee' || !meta.employeeItemId) {
     res.status(403).json({ error: "Ce compte n'a pas accès à l'interface de poinçon." });
     return;
