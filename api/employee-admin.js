@@ -83,12 +83,12 @@ module.exports = async function handler(req, res) {
       }
       const e164 = toE164(phone);
       if (!e164) { res.status(400).json({ error: 'Numéro de téléphone invalide.' }); return; }
-      if (password.length < 8) { res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères.' }); return; }
+      if (password.length < 5) { res.status(400).json({ error: 'Le mot de passe doit contenir au moins 5 caractères.' }); return; }
 
       const user = await clerk.users.createUser({
         phoneNumber: [e164],
         password,
-        skipPasswordChecks: false,
+        skipPasswordChecks: true, // permet des mots de passe simples/courts (min. 5) sans la validation de robustesse de Clerk
         publicMetadata: { role: 'employee', employeeItemId: String(employeeItemId), employeeName: employeeName || '' }
       });
       await mondaySetEmployeeAccess(mondayToken, employeeItemId, user.id, true);
@@ -99,8 +99,8 @@ module.exports = async function handler(req, res) {
     if (action === 'resetPassword') {
       const { clerkUserId, password } = req.body || {};
       if (!clerkUserId || !password) { res.status(400).json({ error: 'clerkUserId et password sont requis.' }); return; }
-      if (password.length < 8) { res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères.' }); return; }
-      await clerk.users.updateUser(clerkUserId, { password });
+      if (password.length < 5) { res.status(400).json({ error: 'Le mot de passe doit contenir au moins 5 caractères.' }); return; }
+      await clerk.users.updateUser(clerkUserId, { password, skipPasswordChecks: true });
       res.status(200).json({ ok: true });
       return;
     }
