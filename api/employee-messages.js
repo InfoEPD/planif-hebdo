@@ -7,8 +7,10 @@
 //   'list'     (défaut) — retourne { messages: [...], unreadCount } où unreadCount = nombre
 //              de messages envoyés par l'ADMIN que l'employé n'a pas encore lus (pour la
 //              pastille rouge sur le bouton "Mes messages").
-//   'markRead' — marque comme lus (côté employé) tous les messages admin non lus. Retourne
-//              { ok: true }.
+//   'markRead' — marque comme lus (côté employé) les messages admin non lus. Accepte
+//              optionnellement { weekStart, weekEnd } ("YYYY-MM-DD") pour ne marquer lus
+//              que les messages de CETTE semaine (Dim → Sam) — sinon marque tout. Retourne
+//              { ok: true, marked: N }.
 
 const { verifyToken } = require('@clerk/backend');
 
@@ -57,6 +59,11 @@ module.exports = async function handler(req, res) {
   }
   const employeeItemId = Number(meta.employeeItemId);
   const action = (req.body && req.body.action) || 'list';
+  // Optionnel : scope la marque "lu" à une semaine précise (Dim → Sam, "YYYY-MM-DD"), pour
+  // que consulter le fil d'UNE semaine ne marque pas lus les messages des AUTRES semaines.
+  const weekStart = req.body && req.body.weekStart;
+  const weekEnd = req.body && req.body.weekEnd;
+  const inWeek = dateStr => !weekStart || ((dateStr || '').slice(0, 10) >= weekStart && (dateStr || '').slice(0, 10) <= weekEnd);
 
   try {
     const data = await mondayGraphQL(mondayToken, `
@@ -94,7 +101,7 @@ module.exports = async function handler(req, res) {
     }).filter(m => m.date);
 
     if (action === 'markRead') {
-      const toMark = parsed.filter(m => m.auteur === 'Admin' && !m.luEmploye);
+      const toMark = parsed.filter(m => m.auteur === 'Admin' && !m.luEmploye && inWeek(m.date));
       for (const m of toMark) {
         await mondayGraphQL(mondayToken, `
           mutation($board: ID!, $item: ID!, $cv: JSON!) {
