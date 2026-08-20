@@ -33,7 +33,7 @@ module.exports = async function handler(req, res) {
 
   // Les comptes employé (accès poinçon mobile) n'ont pas accès à cette API complète —
   // ils utilisent les points d'accès dédiés et allégés (employee-today, punch, messages).
-  const role = claims && claims.publicMetadata && claims.publicMetadata.role;
+  const role = claims && claims.role;
   if (role === 'employee' || role === 'employee_disabled') {
     res.status(403).json({ error: "Accès non autorisé pour ce type de compte." });
     return;
