@@ -4,9 +4,10 @@
 // === 'employee' (voir api/employee-today.js pour la note de configuration Clerk requise).
 //
 // Convention CCQ commerciale (Québec) utilisée pour ajuster le total payable :
-//   - Dîner (30 min) : pris = 30 min déduites (pause non payée) ; NON pris = 30 min AJOUTÉES
-//     (l'employé a travaillé pendant sa pause, donc payé pour ce temps) — même logique que
-//     les pauses matin/PM ci-dessous, avec 30 min au lieu de 15.
+//   - Dîner (30 min) : pris = 30 min déduites du temps écoulé (pause non payée) ; NON pris =
+//     AUCUNE déduction (l'employé a travaillé pendant sa pause, donc payé pour ce temps —
+//     par rapport au cas "pris", cela revient à "ajouter" les 30 min qui auraient sinon été
+//     déduites, mais l'ajustement lui-même reste neutre, jamais positif).
 //   - Pause matin (15 min) et pause après-midi (15 min) : payées, donc normalement non
 //     déduites. Si NON prises, on AJOUTE 15 min au total payable (l'employé a soit
 //     travaillé pendant la pause, soit quitté plus tôt sans la prendre).
@@ -366,11 +367,12 @@ module.exports = async function handler(req, res) {
       const lunchApplicable = finishMinutes >= 13 * 60;
       const afternoonApplicable = finishMinutes >= 14 * 60;
       const afternoonSkipped = afternoonApplicable && afternoonTaken === false;
-      // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = 30 min AJOUTÉES
-      // (l'employé a travaillé pendant sa pause, donc payé pour ce temps) — même logique
-      // que les pauses matin/PM, avec 30 min au lieu de 15.
+      // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = AUCUNE déduction
+      // (l'employé a travaillé pendant sa pause, donc payé pour ce temps). L'ajustement
+      // reste neutre (0) quand non pris — ne JAMAIS ajouter 30 min positivement, sinon on
+      // paierait l'employé deux fois pour le même 30 minutes.
       const lunchSkippedEffective = lunchApplicable && lunchSkipped === true;
-      const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 30 : -30) : 0;
+      const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 0 : -30) : 0;
       const dayPayableRaw = grandTotalBrutMin
         + lunchAdjust
         + (morningSkipped ? 15 : 0)
@@ -491,11 +493,12 @@ module.exports = async function handler(req, res) {
         const lunchApplicable = finishMinutes >= 13 * 60;
         const afternoonApplicable = finishMinutes >= 14 * 60;
         const afternoonSkipped = afternoonApplicable && afternoonTaken === false;
-        // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = 30 min AJOUTÉES
-        // (l'employé a travaillé pendant sa pause, donc payé pour ce temps) — même logique
-        // que les pauses matin/PM, avec 30 min au lieu de 15.
+        // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = AUCUNE déduction
+        // (l'employé a travaillé pendant sa pause, donc payé pour ce temps). L'ajustement
+        // reste neutre (0) quand non pris — ne JAMAIS ajouter 30 min positivement, sinon on
+        // paierait l'employé deux fois pour le même 30 minutes.
         const lunchSkippedEffective = lunchApplicable && lunchSkipped === true;
-        const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 30 : -30) : 0;
+        const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 0 : -30) : 0;
         const payableRaw = elapsedMin
           + lunchAdjust
           + (morningSkipped ? 15 : 0)
