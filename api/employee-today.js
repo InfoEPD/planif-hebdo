@@ -2,15 +2,14 @@
 // Point d'accès ALLÉGÉ (interface mobile employé) : retourne uniquement ce dont
 // l'employé connecté a besoin pour poinçonner aujourd'hui — pas tout le board
 // de planification comme le fait api/monday.js pour l'app bureau. Nécessite un
-// jeton de session Clerk valide dont les publicMetadata contiennent
+// jeton de session Clerk valide dont les claims contiennent
 // { role: 'employee', employeeItemId: '<id de l'item Monday employé>' }.
 //
-// IMPORTANT — étape de configuration Clerk requise (une seule fois) :
-// Dans le Clerk Dashboard → Configure → Sessions → Edit → "Customize session token",
-// ajouter la réclamation personnalisée :
-//   "metadata": "{{user.public_metadata}}"
-// Sans cette étape, publicMetadata n'apparaît pas dans le jeton vérifié ici et
-// l'authentification échouera pour tous les comptes employé.
+// IMPORTANT — configuration Clerk requise (une seule fois), Dashboard Clerk :
+// Sessions → Edit → "Customize session token", coller dans l'éditeur de claims :
+//   { "role": "{{user.public_metadata.role}}",
+//     "employeeItemId": "{{user.public_metadata.employeeItemId}}",
+//     "employeeName": "{{user.public_metadata.employeeName}}" }
 
 const { verifyToken } = require('@clerk/backend');
 
@@ -59,7 +58,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const meta = claims.publicMetadata || {};
+  const meta = claims || {};
   if (meta.role !== 'employee' || !meta.employeeItemId) {
     res.status(403).json({ error: "Ce compte n'a pas accès à l'interface de poinçon." });
     return;
