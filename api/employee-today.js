@@ -147,6 +147,24 @@ module.exports = async function handler(req, res) {
     }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     const plannedProjects = mine.map(projectOf).filter(Boolean);
 
+    // Planification de l'employé pour CHAQUE jour de la semaine en cours (lecture seule,
+    // ne va jamais au-delà de la semaine courante — voir bouton "Ma planification" mobile).
+    const mineWeek = weekItems.filter(it => {
+      const cv = (it.column_values || []).find(c => c.id === COL_MENUISIERS);
+      const ids = (cv && cv.linked_item_ids) || [];
+      return ids.map(String).includes(employeeItemId);
+    });
+    const scheduleByDate = new Map();
+    mineWeek.forEach(it => {
+      const d = dateOf(it);
+      const p = projectOf(it);
+      if (!d || !p) return;
+      if (!scheduleByDate.has(d)) scheduleByDate.set(d, []);
+      const arr = scheduleByDate.get(d);
+      if (!arr.some(x => String(x.id) === String(p.id))) arr.push(p);
+    });
+    const mySchedule = weekDates.map(d => ({ date: d, projects: scheduleByDate.get(d) || [] }));
+
     // Tous les projets ayant au moins une personne RÉELLEMENT planifiée dans la semaine en cours
     // (tous employés confondus). On exclut les items dont la liste de menuisiers est vide —
     // ces projets sont "sans besoin de main d'œuvre" cette semaine-là et ne doivent pas apparaître.
@@ -178,7 +196,7 @@ module.exports = async function handler(req, res) {
       } catch (e) { /* ignore, pas de suggestion */ }
     }
 
-    res.status(200).json({ today, plannedProjects, weekProjects, activeProjects, kmSuggested });
+    res.status(200).json({ today, plannedProjects, weekProjects, activeProjects, kmSuggested, mySchedule });
   } catch (err) {
     res.status(502).json({ error: 'Erreur de connexion à monday.com: ' + err.message });
   }
