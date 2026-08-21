@@ -12,10 +12,10 @@
 //     déduites. Si NON prises, on AJOUTE 15 min au total payable (l'employé a soit
 //     travaillé pendant la pause, soit quitté plus tôt sans la prendre).
 //   - Le total payable est ensuite arrondi au 15 minutes le plus proche (haut ou bas).
-//   - Cette déduction/ajustement ne s'applique qu'UNE SEULE FOIS par journée, sur le
-//     dernier segment de travail (voir action 'switch' ci-dessous pour les changements
-//     de chantier en cours de journée — un employé peut avoir plusieurs poinçons/segments
-//     le même jour, un par chantier).
+//   - Cette déduction/ajustement ne s'applique qu'UNE SEULE FOIS par journée, imputée au
+//     segment de travail qui a le PLUS D'HEURES ce jour-là (voir action 'switch' ci-dessous
+//     pour les changements de chantier en cours de journée — un employé peut avoir plusieurs
+//     poinçons/segments le même jour, un par chantier).
 //
 // Actions :
 //   start  — débute un poinçon sur un projet.
@@ -24,7 +24,7 @@
 //            le nouveau projet à CETTE MÊME heure arrondie (aucune seconde perdue/dupliquée).
 //   finish — termine la journée : calcule le total payable sur l'ENSEMBLE des segments du
 //            jour (tous chantiers confondus) et applique la déduction/ajustement des pauses
-//            une seule fois, imputée au dernier segment.
+//            une seule fois, imputée au segment ayant le plus d'heures travaillées.
 //
 // La géolocalisation (lat/lng) est OBLIGATOIRE pour start/switch/finish — validée ici côté
 // serveur pour qu'elle ne puisse pas être contournée depuis le client.
@@ -149,17 +149,22 @@ async function getDayPauseHandled(mondayToken, employeeItemId, dateStr, excludeI
     const finCv = (it.column_values || []).find(c => c.id === COL_HEURE_FIN);
     return (finCv && typeof finCv.hour === 'number') ? (finCv.hour * 60 + finCv.minute) : null;
   }).filter(m => m !== null);
-  const sumPrevAjusteMin = otherClosedItems.reduce((sum, it) => {
+  // Détail par segment (pas seulement la somme) — nécessaire pour déterminer lequel des
+  // segments déjà fermés aujourd'hui a le PLUS d'heures travaillées, seul critère qui décide
+  // maintenant où imputer l'ajustement complet de la journée (voir action 'finish' plus bas).
+  const prevItems = otherClosedItems.map(it => {
     const ajCv = (it.column_values || []).find(c => c.id === COL_TOTAL_AJUSTE);
     const h = Number((ajCv && ajCv.text) || 0);
-    return sum + (isFinite(h) ? h * 60 : 0);
-  }, 0);
+    return { id: it.id, ajusteMin: isFinite(h) ? Math.round(h * 60) : 0 };
+  });
+  const sumPrevAjusteMin = prevItems.reduce((sum, pi) => sum + pi.ajusteMin, 0);
 
   return {
     morningHandled: otherClosedItems.length > 0,
     lunchHandled: otherFinishMinutes.some(m => m >= 13 * 60),
     pmHandled: otherFinishMinutes.some(m => m >= 14 * 60),
-    sumPrevAjusteMin
+    sumPrevAjusteMin,
+    prevItems
   };
 }
 
@@ -293,7 +298,7 @@ module.exports = async function handler(req, res) {
       const brutH = Math.round((round15(elapsedMin) / 60) * 100) / 100;
 
       // Ferme le segment actif — sans déduction de pause ici (appliquée une seule fois, à la
-      // toute fin de journée, sur le dernier segment).
+      // toute fin de journée, sur le segment qui a le plus d'heures).
       await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $item: ID!, $cv: JSON!) {
           change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id }
@@ -392,7 +397,7 @@ module.exports = async function handler(req, res) {
       // Retrouve les AUTRES segments (chantiers) déjà fermés aujourd'hui pour cet employé
       // (résultat d'un ou plusieurs changements de chantier via l'action 'switch'), afin de
       // calculer le total payable de la journée ENTIÈRE, pas seulement ce dernier segment.
-      const { morningHandled: morningAlreadyHandled, lunchHandled: lunchAlreadyHandled, pmHandled: pmAlreadyHandled, sumPrevAjusteMin } =
+      const { morningHandled: morningAlreadyHandled, lunchHandled: lunchAlreadyHandled, pmHandled: pmAlreadyHandled, sumPrevAjusteMin, prevItems } =
         await getDayPauseHandled(mondayToken, employeeItemId, itemDate, itemId);
       const sumPrevBrutMin = sumPrevAjusteMin; // segments antérieurs = brut non ajusté (voir action 'switch')
 
@@ -425,21 +430,47 @@ module.exports = async function handler(req, res) {
         + (morningSkippedEffective ? 15 : 0)
         + (afternoonSkipped ? 15 : 0);
       const dayPayableMin = Math.max(0, round15(dayPayableRaw));
-      // La déduction/l'ajustement de la journée est imputé entièrement à CE dernier segment,
-      // de façon à ce que la somme de tous les segments du jour égale le total payable exact.
-      const lastAjusteMin = Math.max(0, dayPayableMin - sumPrevAjusteMin);
+
+      // La déduction/l'ajustement de la journée est imputé au segment qui a travaillé le PLUS
+      // D'HEURES ce jour-là (peu importe l'ordre chronologique de fermeture) — pas forcément
+      // celui qu'on ferme maintenant. On compare le segment courant aux segments PRÉCÉDENTS
+      // déjà fermés (via 'switch') ; à égalité, on garde le comportement historique et on
+      // impute au segment courant.
+      const currentBrutMin = round15(elapsedMin);
+      let biggestPrevItem = null;
+      let biggestMin = currentBrutMin;
+      prevItems.forEach(pi => {
+        if (pi.ajusteMin > biggestMin) { biggestMin = pi.ajusteMin; biggestPrevItem = pi; }
+      });
 
       const columnValues = {
         [COL_HEURE_FIN]: { hour: now.hour, minute: now.minute },
         [COL_GPS_FIN]: `${lat},${lng}`,
-        [COL_MATIN_NON_PRISE]: { checked: morningSkippedEffective ? 'true' : 'false' },
-        [COL_RAISON_MATIN]: morningApplicable ? (morningReason || '') : '',
-        [COL_DINER_NON_PRIS]: { checked: lunchSkippedEffective ? 'true' : 'false' },
-        [COL_RAISON_DINER]: lunchApplicable ? (lunchReason || '') : '',
-        [COL_PM_PRISE]: { checked: afternoonTaken ? 'true' : 'false' },
-        [COL_TOTAL_BRUT]: brutH,
-        [COL_TOTAL_AJUSTE]: Math.round((lastAjusteMin / 60) * 100) / 100
+        [COL_TOTAL_BRUT]: brutH
       };
+      let currentAjusteMin;
+      if (!biggestPrevItem) {
+        // Le segment qu'on ferme maintenant a le plus d'heures (ou est à égalité) : il absorbe
+        // l'ajustement complet de la journée, exactement comme avant.
+        currentAjusteMin = Math.max(0, dayPayableMin - sumPrevAjusteMin);
+        columnValues[COL_MATIN_NON_PRISE] = { checked: morningSkippedEffective ? 'true' : 'false' };
+        columnValues[COL_RAISON_MATIN] = morningApplicable ? (morningReason || '') : '';
+        columnValues[COL_DINER_NON_PRIS] = { checked: lunchSkippedEffective ? 'true' : 'false' };
+        columnValues[COL_RAISON_DINER] = lunchApplicable ? (lunchReason || '') : '';
+        columnValues[COL_PM_PRISE] = { checked: afternoonTaken ? 'true' : 'false' };
+      } else {
+        // Un segment PRÉCÉDENT (déjà fermé) a travaillé plus d'heures aujourd'hui : c'est lui
+        // qui absorbera l'ajustement (mutation séparée ci-dessous) — le segment qu'on ferme
+        // maintenant est payé = son propre brut, sans pause imputée ici.
+        currentAjusteMin = currentBrutMin;
+        columnValues[COL_MATIN_NON_PRISE] = { checked: 'false' };
+        columnValues[COL_RAISON_MATIN] = '';
+        columnValues[COL_DINER_NON_PRIS] = { checked: 'false' };
+        columnValues[COL_RAISON_DINER] = '';
+        columnValues[COL_PM_PRISE] = { checked: 'false' };
+      }
+      const currentAjusteH = Math.round((currentAjusteMin / 60) * 100) / 100;
+      columnValues[COL_TOTAL_AJUSTE] = currentAjusteH;
 
       await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $item: ID!, $cv: JSON!) {
@@ -447,10 +478,30 @@ module.exports = async function handler(req, res) {
         }
       `, { board: String(POINCONS_BOARD), item: String(itemId), cv: JSON.stringify(columnValues) });
 
+      if (biggestPrevItem) {
+        const otherPrevSum = sumPrevAjusteMin - biggestPrevItem.ajusteMin;
+        const prevAjusteMin = Math.max(0, dayPayableMin - otherPrevSum - currentBrutMin);
+        await mondayGraphQL(mondayToken, `
+          mutation($board: ID!, $item: ID!, $cv: JSON!) {
+            change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id }
+          }
+        `, {
+          board: String(POINCONS_BOARD), item: String(biggestPrevItem.id),
+          cv: JSON.stringify({
+            [COL_MATIN_NON_PRISE]: { checked: morningSkippedEffective ? 'true' : 'false' },
+            [COL_RAISON_MATIN]: morningApplicable ? (morningReason || '') : '',
+            [COL_DINER_NON_PRIS]: { checked: lunchSkippedEffective ? 'true' : 'false' },
+            [COL_RAISON_DINER]: lunchApplicable ? (lunchReason || '') : '',
+            [COL_PM_PRISE]: { checked: afternoonTaken ? 'true' : 'false' },
+            [COL_TOTAL_AJUSTE]: Math.round((prevAjusteMin / 60) * 100) / 100
+          })
+        });
+      }
+
       res.status(200).json({
         itemId,
         totalBrutH: brutH,
-        totalAjusteH: Math.round((lastAjusteMin / 60) * 100) / 100,
+        totalAjusteH: currentAjusteH,
         dayTotalAjusteH: Math.round((dayPayableMin / 60) * 100) / 100
       });
       return;
