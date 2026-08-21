@@ -22,10 +22,22 @@ const COL_MENUISIERS = 'board_relation_mm66fec0';
 const PROJECTS_BOARD = 8371776057;
 const PROJECT_STAGE_COL = 'status3';
 const PROJECT_ACTIVE_INDEX = 0; // "Projet en cours"
+// Coché = sur ce projet, l'employé ne peut poinçonner que des Tâches non-CCQ (voir Configuration
+// dans admin-poincon.html).
+const PROJECT_HORS_CCQ_COL = 'boolean_mm6eweyh';
 
 const DISTANCES_BOARD = 18426435716;
 const DIST_EMP_ID_COL = 'text_mm66z9bc';
 const DIST_JSON_COL = 'long_text_mm668qje';
+
+const EMPLOYEES_BOARD = 8371777574;
+const EMP_TITRE_COL = 'statut_mkmx1x42'; // "Titre d'emploi" — détermine le Métier de l'employé
+
+// ----- Configuration Métiers / Tâches (voir admin-poincon.html, onglet Configuration) -----
+const METIERS_BOARD = 18427580793;
+const TACHES_BOARD = 18427580795;
+const TACHE_METIER = 'board_relation_mm6exv06';
+const TACHE_CCQ = 'boolean_mm6e9yfa';
 
 function todayInMontreal() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -85,7 +97,7 @@ module.exports = async function handler(req, res) {
   const weekDates = weekdayDates(today);
 
   const query = `
-    query($planningBoard: ID!, $week: [String]!, $projectsBoard: ID!, $stageCol: ID!, $stageVal: CompareValue!, $distBoard: ID!, $distCol: String!, $empId: [String]!) {
+    query($planningBoard: ID!, $week: [String]!, $projectsBoard: ID!, $stageCol: ID!, $stageVal: CompareValue!, $distBoard: ID!, $distCol: String!, $empId: [String]!, $empIds: [ID!], $metBoard: [ID!], $tachBoard: [ID!]) {
       planningWeek: items_page_by_column_values(board_id: $planningBoard, columns: [{ column_id: "${COL_DATE}", column_values: $week }], limit: 500) {
         items {
           id
@@ -98,11 +110,26 @@ module.exports = async function handler(req, res) {
       }
       activeProjects: boards(ids: [$projectsBoard]) {
         items_page(query_params: { rules: [{ column_id: $stageCol, compare_value: $stageVal, operator: any_of }] }, limit: 200) {
-          items { id name }
+          items { id name column_values(ids: ["${PROJECT_HORS_CCQ_COL}"]) { id text } }
         }
       }
       distanceCache: items_page_by_column_values(board_id: $distBoard, columns: [{ column_id: $distCol, column_values: $empId }], limit: 1) {
         items { id column_values(ids: ["${DIST_JSON_COL}"]) { text } }
+      }
+      moi: items(ids: $empIds) {
+        id column_values(ids: ["${EMP_TITRE_COL}"]) { id text }
+      }
+      metiers: boards(ids: $metBoard) { items_page(limit: 200) { items { id name } } }
+      taches: boards(ids: $tachBoard) {
+        items_page(limit: 500) {
+          items {
+            id name
+            column_values(ids: ["${TACHE_METIER}", "${TACHE_CCQ}"]) {
+              id text
+              ... on BoardRelationValue { linked_items { id name } }
+            }
+          }
+        }
       }
     }
   `;
@@ -116,7 +143,8 @@ module.exports = async function handler(req, res) {
         variables: {
           planningBoard: String(PLANNING_BOARD), week: weekDates,
           projectsBoard: String(PROJECTS_BOARD), stageCol: PROJECT_STAGE_COL, stageVal: [PROJECT_ACTIVE_INDEX],
-          distBoard: String(DISTANCES_BOARD), distCol: DIST_EMP_ID_COL, empId: [employeeItemId]
+          distBoard: String(DISTANCES_BOARD), distCol: DIST_EMP_ID_COL, empId: [employeeItemId],
+          empIds: [employeeItemId], metBoard: [String(METIERS_BOARD)], tachBoard: [String(TACHES_BOARD)]
         }
       })
     });
@@ -181,8 +209,39 @@ module.exports = async function handler(req, res) {
     // Filet de sécurité : projets marqués "actifs" au board Projets, même si personne n'y est
     // encore planifié cette semaine (permet quand même de poinçonner dessus au besoin).
     const activeProjectsBoard = (data.data.activeProjects && data.data.activeProjects[0]) || null;
+    const horsCcqMap = new Map();
     const activeProjects = ((activeProjectsBoard && activeProjectsBoard.items_page && activeProjectsBoard.items_page.items) || [])
-      .map(it => ({ id: it.id, name: it.name }))
+      .map(it => {
+        const cv = (it.column_values || []).find(c => c.id === PROJECT_HORS_CCQ_COL);
+        const horsCcq = (cv && cv.text) === 'v';
+        horsCcqMap.set(String(it.id), horsCcq);
+        return { id: it.id, name: it.name, horsCcq };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // plannedProjects/weekProjects viennent du board de planification (pas du board Projets) —
+    // on leur annexe le flag horsCcq via la map ci-dessus (par défaut false si projet non actif).
+    const withHorsCcq = p => ({ ...p, horsCcq: horsCcqMap.get(String(p.id)) || false });
+    const plannedProjectsFlagged = plannedProjects.map(withHorsCcq);
+    const weekProjectsFlagged = weekProjects.map(withHorsCcq);
+    const mySchedule2 = mySchedule.map(d => ({ ...d, projects: d.projects.map(withHorsCcq) }));
+
+    // Titre d'emploi de l'employé connecté → détermine son Métier et donc ses Tâches poinçonnables.
+    const moiItem = (data.data.moi || [])[0];
+    const moiCv = moiItem ? (moiItem.column_values || []).find(c => c.id === EMP_TITRE_COL) : null;
+    const titre = (moiCv && moiCv.text) || '';
+
+    const metierItems = ((data.data.metiers[0] && data.data.metiers[0].items_page.items) || []);
+    const monMetier = metierItems.find(m => m.name === titre) || null;
+    const tacheItems = ((data.data.taches[0] && data.data.taches[0].items_page.items) || []);
+    const taches = tacheItems
+      .map(it => {
+        const cv = {};
+        (it.column_values || []).forEach(c => { cv[c.id] = c; });
+        const metCv = cv[TACHE_METIER];
+        const met = (metCv && metCv.linked_items && metCv.linked_items[0]) || null;
+        return { id: it.id, name: it.name, metierId: met ? met.id : '', ccq: (cv[TACHE_CCQ] && cv[TACHE_CCQ].text) === 'v' };
+      })
+      .filter(t => monMetier && t.metierId === monMetier.id)
       .sort((a, b) => a.name.localeCompare(b.name));
 
     let kmSuggested = null;
@@ -196,7 +255,10 @@ module.exports = async function handler(req, res) {
       } catch (e) { /* ignore, pas de suggestion */ }
     }
 
-    res.status(200).json({ today, plannedProjects, weekProjects, activeProjects, kmSuggested, mySchedule });
+    res.status(200).json({
+      today, plannedProjects: plannedProjectsFlagged, weekProjects: weekProjectsFlagged, activeProjects,
+      kmSuggested, mySchedule: mySchedule2, titre, taches
+    });
   } catch (err) {
     res.status(502).json({ error: 'Erreur de connexion à monday.com: ' + err.message });
   }
