@@ -50,6 +50,9 @@ const COL_TOTAL_AJUSTE = 'numeric_mm6d8c9m';
 const COL_KM_SUGGERE = 'numeric_mm6d4hvv';
 const COL_KM_AJUSTE = 'numeric_mm6dxafw';
 const COL_STATUT = 'color_mm6dxpt7';
+// Nom de la Tâche choisie par l'employé (copie figée en texte — voir admin-poincon.html /
+// api/employee-today.js pour la Configuration Métiers/Tâches).
+const COL_TACHE = 'text_mm6enx2b';
 
 function nowInToronto() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -139,8 +142,9 @@ module.exports = async function handler(req, res) {
 
   try {
     if (action === 'start') {
-      const { projectId, lat, lng, kmSuggested, clientTimestamp } = req.body || {};
+      const { projectId, tache, lat, lng, kmSuggested, clientTimestamp } = req.body || {};
       if (!projectId) { res.status(400).json({ error: 'Projet manquant.' }); return; }
+      if (!tache || !String(tache).trim()) { res.status(400).json({ error: 'Tâche manquante.' }); return; }
       if (!isValidCoord(lat) || !isValidCoord(lng)) {
         res.status(400).json({ error: 'Localisation (GPS) requise pour débuter un poinçon. Veuillez activer la localisation.' });
         return;
@@ -176,7 +180,8 @@ module.exports = async function handler(req, res) {
         [COL_SEMAINE]: mondayOfWeek(now.date),
         [COL_HEURE_DEBUT]: { hour: now.hour, minute: now.minute },
         [COL_GPS_DEBUT]: `${lat},${lng}`,
-        [COL_STATUT]: { label: 'En attente' }
+        [COL_STATUT]: { label: 'En attente' },
+        [COL_TACHE]: String(tache).trim()
       };
       if (typeof kmSuggested === 'number') columnValues[COL_KM_SUGGERE] = kmSuggested;
 
@@ -191,8 +196,9 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'switch') {
-      const { itemId, newProjectId, lat, lng, clientTimestamp } = req.body || {};
+      const { itemId, newProjectId, tache, lat, lng, clientTimestamp } = req.body || {};
       if (!itemId || !newProjectId) { res.status(400).json({ error: 'Poinçon ou nouveau projet manquant.' }); return; }
+      if (!tache || !String(tache).trim()) { res.status(400).json({ error: 'Tâche manquante.' }); return; }
       if (!isValidCoord(lat) || !isValidCoord(lng)) {
         res.status(400).json({ error: 'Localisation (GPS) requise pour changer de chantier. Veuillez activer la localisation.' });
         return;
@@ -263,7 +269,8 @@ module.exports = async function handler(req, res) {
         [COL_SEMAINE]: mondayOfWeek(itemDate),
         [COL_HEURE_DEBUT]: { hour: rounded.hour, minute: rounded.minute },
         [COL_GPS_DEBUT]: `${lat},${lng}`,
-        [COL_STATUT]: { label: 'En attente' }
+        [COL_STATUT]: { label: 'En attente' },
+        [COL_TACHE]: String(tache).trim()
       };
       const created = await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $name: String!, $cv: JSON!) {
@@ -413,120 +420,4 @@ module.exports = async function handler(req, res) {
       // Permet à l'employé de corriger LUI-MÊME un poinçon déjà terminé, mais SEULEMENT tant
       // qu'il n'a pas encore été traité (Approuvé/Rejeté) par l'admin. Il peut changer le
       // chantier et les 3 cases de pause. Les heures de début/fin ne sont JAMAIS modifiables
-      // ici (elles restent celles réellement poinçonnées, avec GPS/horodatage serveur).
-      const { itemId, projectId, morningSkipped, morningReason, lunchSkipped, lunchReason, afternoonTaken } = req.body || {};
-      if (!itemId) { res.status(400).json({ error: 'Poinçon manquant.' }); return; }
-
-      const detail = await mondayGraphQL(mondayToken, `
-        query($ids: [ID!]) {
-          items(ids: $ids) {
-            id
-            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_DATE}", "${COL_STATUT}"]) {
-              id text
-              ... on BoardRelationValue { linked_item_ids }
-              ... on HourValue { hour minute }
-            }
-          }
-        }
-      `, { ids: [String(itemId)] });
-
-      const item = (detail.items || [])[0];
-      if (!item) { res.status(404).json({ error: 'Poinçon introuvable.' }); return; }
-      const empCv = item.column_values.find(c => c.id === COL_EMPLOYE);
-      const ids = (empCv && empCv.linked_item_ids) || [];
-      if (!ids.map(String).includes(employeeItemId)) {
-        res.status(403).json({ error: "Ce poinçon n'appartient pas à cet employé." });
-        return;
-      }
-      const statutCv = item.column_values.find(c => c.id === COL_STATUT);
-      const statut = (statutCv && statutCv.text) || 'En attente';
-      if (statut !== 'En attente') {
-        res.status(403).json({ error: 'Ce poinçon a déjà été traité par l\'administrateur (' + statut + ') et ne peut plus être modifié.' });
-        return;
-      }
-      const finCv = item.column_values.find(c => c.id === COL_HEURE_FIN);
-      if (!finCv || finCv.hour == null) { res.status(400).json({ error: 'Ce poinçon est toujours en cours — impossible de le modifier ici.' }); return; }
-      const startCv = item.column_values.find(c => c.id === COL_HEURE_DEBUT);
-      const dateCv = item.column_values.find(c => c.id === COL_DATE);
-      const itemDate = (dateCv && dateCv.text) || nowInToronto().date;
-
-      const columnValues = {};
-      if (projectId) columnValues[COL_PROJET] = { item_ids: [Number(projectId)] };
-
-      const pauseFieldsSent = (morningSkipped !== undefined) || (lunchSkipped !== undefined) || (afternoonTaken !== undefined);
-      if (pauseFieldsSent) {
-        // Les cases de pause n'ont de sens payable que pour une journée à UN SEUL segment
-        // (aucun changement de chantier en cours de route) — sur une journée à plusieurs
-        // segments, la répartition des pauses entre segments est ambiguë et reste réservée à
-        // l'admin. On vérifie donc que c'est le seul poinçon de cet employé ce jour-là.
-        const dayItems = await mondayGraphQL(mondayToken, `
-          query($board: ID!, $dateCol: String!, $date: [String]!) {
-            items_page_by_column_values(board_id: $board, columns: [{ column_id: $dateCol, column_values: $date }], limit: 50) {
-              items { id column_values(ids: ["${COL_EMPLOYE}"]) { id ... on BoardRelationValue { linked_item_ids } } }
-            }
-          }
-        `, { board: String(POINCONS_BOARD), dateCol: COL_DATE, date: [itemDate] });
-        const empDayItems = (dayItems.items_page_by_column_values.items || []).filter(it => {
-          const c = (it.column_values || []).find(c => c.id === COL_EMPLOYE);
-          return ((c && c.linked_item_ids) || []).map(String).includes(employeeItemId);
-        });
-        if (empDayItems.length > 1) {
-          res.status(400).json({ error: "Journée avec changement de chantier : les pauses ne peuvent pas être modifiées ici. Contactez l'administrateur." });
-          return;
-        }
-
-        if (morningSkipped && !(morningReason || '').trim()) {
-          res.status(400).json({ error: "Raison obligatoire si la pause du matin n'a pas été prise." });
-          return;
-        }
-        if (lunchSkipped && !(lunchReason || '').trim()) {
-          res.status(400).json({ error: "Raison obligatoire si le dîner n'a pas été pris." });
-          return;
-        }
-
-        const startHour = startCv && typeof startCv.hour === 'number' ? startCv.hour : 0;
-        const startMinute = startCv && typeof startCv.minute === 'number' ? startCv.minute : 0;
-        const finHour = finCv.hour, finMinute = finCv.minute;
-        let elapsedMin = (finHour * 60 + finMinute) - (startHour * 60 + startMinute);
-        if (elapsedMin < 0) elapsedMin += 1440;
-        const finishMinutes = finHour * 60 + finMinute;
-        const lunchApplicable = finishMinutes >= 13 * 60;
-        const afternoonApplicable = finishMinutes >= 14 * 60;
-        const afternoonSkipped = afternoonApplicable && afternoonTaken === false;
-        // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = AUCUNE déduction
-        // (l'employé a travaillé pendant sa pause, donc payé pour ce temps). L'ajustement
-        // reste neutre (0) quand non pris — ne JAMAIS ajouter 30 min positivement, sinon on
-        // paierait l'employé deux fois pour le même 30 minutes.
-        const lunchSkippedEffective = lunchApplicable && lunchSkipped === true;
-        const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 0 : -30) : 0;
-        const payableRaw = elapsedMin
-          + lunchAdjust
-          + (morningSkipped ? 15 : 0)
-          + (afternoonSkipped ? 15 : 0);
-        const payableMin = Math.max(0, round15(payableRaw));
-
-        columnValues[COL_MATIN_NON_PRISE] = { checked: morningSkipped ? 'true' : 'false' };
-        columnValues[COL_RAISON_MATIN] = morningReason || '';
-        columnValues[COL_DINER_NON_PRIS] = { checked: (lunchApplicable && lunchSkipped) ? 'true' : 'false' };
-        columnValues[COL_RAISON_DINER] = lunchReason || '';
-        columnValues[COL_PM_PRISE] = { checked: afternoonTaken ? 'true' : 'false' };
-        columnValues[COL_TOTAL_AJUSTE] = Math.round((payableMin / 60) * 100) / 100;
-      }
-
-      if (!Object.keys(columnValues).length) { res.status(400).json({ error: 'Aucune modification envoyée.' }); return; }
-
-      await mondayGraphQL(mondayToken, `
-        mutation($board: ID!, $item: ID!, $cv: JSON!) {
-          change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id }
-        }
-      `, { board: String(POINCONS_BOARD), item: String(itemId), cv: JSON.stringify(columnValues) });
-
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    res.status(400).json({ error: 'Action inconnue.' });
-  } catch (err) {
-    res.status(502).json({ error: 'Erreur de connexion à monday.com: ' + err.message });
-  }
-};
+      // ici
