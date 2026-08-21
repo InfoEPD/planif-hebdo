@@ -115,6 +115,54 @@ async function mondayGraphQL(mondayToken, query, variables) {
   return data.data;
 }
 
+// Les pauses (matin/dîner/PM) se gèrent UNE FOIS PAR JOURNÉE, pas par poinçon. Si l'employé a
+// déjà terminé un AUTRE poinçon plus tôt aujourd'hui (une session distincte — pas un simple
+// changement de chantier, qui ne pose jamais ces questions), la pause correspondante a déjà été
+// traitée à ce moment-là et ne doit ni être reposée, ni réappliquée. On détermine ce qui a déjà
+// été traité à partir de l'heure de fin RÉELLE des segments déjà fermés aujourd'hui pour cet
+// employé — mêmes règles que celles qui décident, à chaque fin de poinçon, si la question doit
+// être posée (matin : toujours ; dîner : si fin ≥ 13h00 ; PM : si fin ≥ 14h00).
+async function getDayPauseHandled(mondayToken, employeeItemId, dateStr, excludeItemId) {
+  const dayItems = await mondayGraphQL(mondayToken, `
+    query($board: ID!, $dateCol: String!, $date: [String]!) {
+      items_page_by_column_values(board_id: $board, columns: [{ column_id: $dateCol, column_values: $date }], limit: 50) {
+        items {
+          id
+          column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_FIN}", "${COL_TOTAL_AJUSTE}"]) {
+            id text
+            ... on BoardRelationValue { linked_item_ids }
+            ... on HourValue { hour minute }
+          }
+        }
+      }
+    }
+  `, { board: String(POINCONS_BOARD), dateCol: COL_DATE, date: [dateStr] });
+
+  const otherClosedItems = (dayItems.items_page_by_column_values.items || []).filter(it => {
+    if (excludeItemId && String(it.id) === String(excludeItemId)) return false;
+    const empCv = (it.column_values || []).find(c => c.id === COL_EMPLOYE);
+    const finCv = (it.column_values || []).find(c => c.id === COL_HEURE_FIN);
+    const ids = (empCv && empCv.linked_item_ids) || [];
+    return ids.map(String).includes(employeeItemId) && finCv && finCv.text;
+  });
+  const otherFinishMinutes = otherClosedItems.map(it => {
+    const finCv = (it.column_values || []).find(c => c.id === COL_HEURE_FIN);
+    return (finCv && typeof finCv.hour === 'number') ? (finCv.hour * 60 + finCv.minute) : null;
+  }).filter(m => m !== null);
+  const sumPrevAjusteMin = otherClosedItems.reduce((sum, it) => {
+    const ajCv = (it.column_values || []).find(c => c.id === COL_TOTAL_AJUSTE);
+    const h = Number((ajCv && ajCv.text) || 0);
+    return sum + (isFinite(h) ? h * 60 : 0);
+  }, 0);
+
+  return {
+    morningHandled: otherClosedItems.length > 0,
+    lunchHandled: otherFinishMinutes.some(m => m >= 13 * 60),
+    pmHandled: otherFinishMinutes.some(m => m >= 14 * 60),
+    sumPrevAjusteMin
+  };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Méthode non autorisée' }); return; }
 
@@ -282,6 +330,16 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (action === 'dayPauseStatus') {
+      // Appelé par l'app mobile juste AVANT d'afficher le formulaire de fin de journée, pour
+      // savoir quelles questions de pause (matin/dîner/PM) ont déjà été traitées plus tôt
+      // aujourd'hui (autre session déjà terminée) et ne doivent donc plus être posées.
+      const now = nowInToronto();
+      const { morningHandled, lunchHandled, pmHandled } = await getDayPauseHandled(mondayToken, employeeItemId, now.date, null);
+      res.status(200).json({ morningHandled, lunchHandled, pmHandled });
+      return;
+    }
+
     if (action === 'finish') {
       const { itemId, lat, lng, morningSkipped, morningReason, lunchSkipped, lunchReason, afternoonTaken, clientTimestamp } = req.body || {};
       if (!itemId) { res.status(400).json({ error: 'Poinçon manquant.' }); return; }
@@ -291,14 +349,10 @@ module.exports = async function handler(req, res) {
       }
       const clockError = checkClientClock(clientTimestamp);
       if (clockError) { res.status(400).json({ error: clockError, clockDrift: true }); return; }
-      if (morningSkipped && !(morningReason || '').trim()) {
-        res.status(400).json({ error: "Raison obligatoire si la pause du matin n'a pas été prise." });
-        return;
-      }
-      if (lunchSkipped && !(lunchReason || '').trim()) {
-        res.status(400).json({ error: "Raison obligatoire si le dîner n'a pas été pris." });
-        return;
-      }
+      // NOTE : la validation "raison obligatoire" ci-dessous ne peut être faite qu'après avoir
+      // déterminé, plus bas, si la pause en question est encore "applicable" aujourd'hui (elle
+      // peut déjà avoir été traitée par une session/poinçon antérieur la même journée — voir
+      // morningApplicable/lunchApplicable/afternoonApplicable).
 
       const detail = await mondayGraphQL(mondayToken, `
         query($ids: [ID!]) {
@@ -338,32 +392,8 @@ module.exports = async function handler(req, res) {
       // Retrouve les AUTRES segments (chantiers) déjà fermés aujourd'hui pour cet employé
       // (résultat d'un ou plusieurs changements de chantier via l'action 'switch'), afin de
       // calculer le total payable de la journée ENTIÈRE, pas seulement ce dernier segment.
-      const dayItems = await mondayGraphQL(mondayToken, `
-        query($board: ID!, $dateCol: String!, $date: [String]!) {
-          items_page_by_column_values(board_id: $board, columns: [{ column_id: $dateCol, column_values: $date }], limit: 50) {
-            items {
-              id
-              column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_FIN}", "${COL_TOTAL_AJUSTE}"]) {
-                id text
-                ... on BoardRelationValue { linked_item_ids }
-              }
-            }
-          }
-        }
-      `, { board: String(POINCONS_BOARD), dateCol: COL_DATE, date: [itemDate] });
-
-      const otherClosedItems = (dayItems.items_page_by_column_values.items || []).filter(it => {
-        if (String(it.id) === String(itemId)) return false;
-        const empCv2 = (it.column_values || []).find(c => c.id === COL_EMPLOYE);
-        const finCv2 = (it.column_values || []).find(c => c.id === COL_HEURE_FIN);
-        const idsOther = (empCv2 && empCv2.linked_item_ids) || [];
-        return idsOther.map(String).includes(employeeItemId) && finCv2 && finCv2.text;
-      });
-      const sumPrevAjusteMin = otherClosedItems.reduce((sum, it) => {
-        const ajCv = (it.column_values || []).find(c => c.id === COL_TOTAL_AJUSTE);
-        const h = Number((ajCv && ajCv.text) || 0);
-        return sum + (isFinite(h) ? h * 60 : 0);
-      }, 0);
+      const { morningHandled: morningAlreadyHandled, lunchHandled: lunchAlreadyHandled, pmHandled: pmAlreadyHandled, sumPrevAjusteMin } =
+        await getDayPauseHandled(mondayToken, employeeItemId, itemDate, itemId);
       const sumPrevBrutMin = sumPrevAjusteMin; // segments antérieurs = brut non ajusté (voir action 'switch')
 
       const grandTotalBrutMin = sumPrevBrutMin + elapsedMin;
@@ -371,8 +401,18 @@ module.exports = async function handler(req, res) {
       // rendue à ce moment-là. Calculé ici côté serveur (autoritatif, non contournable)
       // à partir de l'heure de fin RÉELLE, peu importe ce que le client a envoyé.
       const finishMinutes = now.hour * 60 + now.minute;
-      const lunchApplicable = finishMinutes >= 13 * 60;
-      const afternoonApplicable = finishMinutes >= 14 * 60;
+      const morningApplicable = !morningAlreadyHandled;
+      const lunchApplicable = finishMinutes >= 13 * 60 && !lunchAlreadyHandled;
+      const afternoonApplicable = finishMinutes >= 14 * 60 && !pmAlreadyHandled;
+      if (morningApplicable && morningSkipped && !(morningReason || '').trim()) {
+        res.status(400).json({ error: "Raison obligatoire si la pause du matin n'a pas été prise." });
+        return;
+      }
+      if (lunchApplicable && lunchSkipped && !(lunchReason || '').trim()) {
+        res.status(400).json({ error: "Raison obligatoire si le dîner n'a pas été pris." });
+        return;
+      }
+      const morningSkippedEffective = morningApplicable && morningSkipped === true;
       const afternoonSkipped = afternoonApplicable && afternoonTaken === false;
       // Dîner : pris = 30 min déduites (pause non payée) ; NON pris = AUCUNE déduction
       // (l'employé a travaillé pendant sa pause, donc payé pour ce temps). L'ajustement
@@ -382,7 +422,7 @@ module.exports = async function handler(req, res) {
       const lunchAdjust = lunchApplicable ? (lunchSkippedEffective ? 0 : -30) : 0;
       const dayPayableRaw = grandTotalBrutMin
         + lunchAdjust
-        + (morningSkipped ? 15 : 0)
+        + (morningSkippedEffective ? 15 : 0)
         + (afternoonSkipped ? 15 : 0);
       const dayPayableMin = Math.max(0, round15(dayPayableRaw));
       // La déduction/l'ajustement de la journée est imputé entièrement à CE dernier segment,
@@ -392,10 +432,10 @@ module.exports = async function handler(req, res) {
       const columnValues = {
         [COL_HEURE_FIN]: { hour: now.hour, minute: now.minute },
         [COL_GPS_FIN]: `${lat},${lng}`,
-        [COL_MATIN_NON_PRISE]: { checked: morningSkipped ? 'true' : 'false' },
-        [COL_RAISON_MATIN]: morningReason || '',
-        [COL_DINER_NON_PRIS]: { checked: lunchSkipped ? 'true' : 'false' },
-        [COL_RAISON_DINER]: lunchReason || '',
+        [COL_MATIN_NON_PRISE]: { checked: morningSkippedEffective ? 'true' : 'false' },
+        [COL_RAISON_MATIN]: morningApplicable ? (morningReason || '') : '',
+        [COL_DINER_NON_PRIS]: { checked: lunchSkippedEffective ? 'true' : 'false' },
+        [COL_RAISON_DINER]: lunchApplicable ? (lunchReason || '') : '',
         [COL_PM_PRISE]: { checked: afternoonTaken ? 'true' : 'false' },
         [COL_TOTAL_BRUT]: brutH,
         [COL_TOTAL_AJUSTE]: Math.round((lastAjusteMin / 60) * 100) / 100
