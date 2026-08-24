@@ -12,10 +12,10 @@
 //     déduites. Si NON prises, on AJOUTE 15 min au total payable (l'employé a soit
 //     travaillé pendant la pause, soit quitté plus tôt sans la prendre).
 //   - Le total payable est ensuite arrondi au 15 minutes le plus proche (haut ou bas).
-//   - Cette déduction/ajustement ne s'applique qu'UNE SEULE FOIS par journée, imputée au
-//     segment de travail qui a le PLUS D'HEURES ce jour-là (voir action 'switch' ci-dessous
-//     pour les changements de chantier en cours de journée — un employé peut avoir plusieurs
-//     poinçons/segments le même jour, un par chantier).
+//   - Cette déduction/ajustement ne s'applique qu'UNE SEULE FOIS par journée, sur le
+//     dernier segment de travail (voir action 'switch' ci-dessous pour les changements
+//     de chantier en cours de journée — un employé peut avoir plusieurs poinçons/segments
+//     le même jour, un par chantier).
 //
 // Actions :
 //   start  — débute un poinçon sur un projet.
@@ -24,7 +24,7 @@
 //            le nouveau projet à CETTE MÊME heure arrondie (aucune seconde perdue/dupliquée).
 //   finish — termine la journée : calcule le total payable sur l'ENSEMBLE des segments du
 //            jour (tous chantiers confondus) et applique la déduction/ajustement des pauses
-//            une seule fois, imputée au segment ayant le plus d'heures travaillées.
+//            une seule fois, imputée au dernier segment.
 //
 // La géolocalisation (lat/lng) est OBLIGATOIRE pour start/switch/finish — validée ici côté
 // serveur pour qu'elle ne puisse pas être contournée depuis le client.
@@ -53,6 +53,71 @@ const COL_STATUT = 'color_mm6dxpt7';
 // Nom de la Tâche choisie par l'employé (copie figée en texte — voir admin-poincon.html /
 // api/employee-today.js pour la Configuration Métiers/Tâches).
 const COL_TACHE = 'text_mm6enx2b';
+// Coché = au moins une des positions GPS de ce poinçon (début et/ou fin) était en dehors du
+// rayon toléré autour de l'adresse du projet (voir Configuration > Restriction de projets dans
+// admin-poincon.html) — utilisé pour colorer le poinçon en rouge/vert dans la feuille de temps
+// de l'employé (pointeuse.html).
+const COL_HORS_ZONE = 'boolean_mm6h9m89';
+// Plus grande distance (mètres) observée entre une position GPS de ce poinçon et l'adresse du
+// projet — conservé à titre informatif/dépannage pour l'admin.
+const COL_DISTANCE_M = 'numeric_mm6hvmny';
+
+// ----- Géorepérage (rayon de tolérance GPS par projet) -----
+const PROJECTS_BOARD = 8371776057;
+const PROJ_ADDR_COL = 'lieu__1'; // Colonne "Adresse du projet" (type location, contient lat/lng)
+const PROJ_RAYON_COL = 'numeric_mm6h7r56'; // "Rayon toléré poinçon (m)" — voir Configuration
+const DEFAULT_RADIUS_M = 500;
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Récupère, pour chaque projet demandé, ses coordonnées GPS (adresse Monday) et son rayon de
+// tolérance. Retourne une map projectId -> { lat, lng, radius } ; un projet sans coordonnées
+// géolocalisées valides est OMIS de la map (aucune validation possible pour lui — le poinçon
+// n'est jamais bloqué pour cette raison, seul l'indicateur visuel n'est pas disponible).
+async function getProjectGeoFences(mondayToken, projectIds) {
+  const ids = Array.from(new Set((projectIds || []).filter(Boolean).map(String)));
+  if (!ids.length) return {};
+  const data = await mondayGraphQL(mondayToken, `
+    query($ids: [ID!]) {
+      items(ids: $ids) {
+        id
+        column_values(ids: ["${PROJ_ADDR_COL}", "${PROJ_RAYON_COL}"]) { id text value }
+      }
+    }
+  `, { ids });
+  const map = {};
+  (data.items || []).forEach(it => {
+    const addrCv = (it.column_values || []).find(c => c.id === PROJ_ADDR_COL);
+    const rayonCv = (it.column_values || []).find(c => c.id === PROJ_RAYON_COL);
+    let lat = null, lng = null;
+    if (addrCv && addrCv.value) {
+      try {
+        const v = JSON.parse(addrCv.value);
+        const parsedLat = parseFloat(v.lat), parsedLng = parseFloat(v.lng);
+        if (isFinite(parsedLat) && isFinite(parsedLng)) { lat = parsedLat; lng = parsedLng; }
+      } catch (e) { /* adresse non géolocalisée — ignorer */ }
+    }
+    if (lat === null || lng === null) return; // pas de validation possible pour ce projet
+    const rayonNum = rayonCv && rayonCv.text ? parseFloat(rayonCv.text) : NaN;
+    map[String(it.id)] = { lat, lng, radius: (isFinite(rayonNum) && rayonNum > 0) ? rayonNum : DEFAULT_RADIUS_M };
+  });
+  return map;
+}
+
+// Compare une position GPS à la zone de tolérance d'un projet. Retourne null si le projet n'a
+// pas de géorepérage disponible (voir getProjectGeoFences).
+function evaluateGeofence(geoFence, lat, lng) {
+  if (!geoFence) return null;
+  const distanceM = Math.round(haversineMeters(geoFence.lat, geoFence.lng, lat, lng));
+  return { horsZone: distanceM > geoFence.radius, distanceM };
+}
 
 function nowInToronto() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -238,6 +303,13 @@ module.exports = async function handler(req, res) {
       };
       if (typeof kmSuggested === 'number') columnValues[COL_KM_SUGGERE] = kmSuggested;
 
+      const geoFences = await getProjectGeoFences(mondayToken, [projectId]);
+      const geoResult = evaluateGeofence(geoFences[String(projectId)], lat, lng);
+      if (geoResult) {
+        columnValues[COL_HORS_ZONE] = { checked: geoResult.horsZone ? 'true' : 'false' };
+        columnValues[COL_DISTANCE_M] = geoResult.distanceM;
+      }
+
       const created = await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $name: String!, $cv: JSON!) {
           create_item(board_id: $board, item_name: $name, column_values: $cv) { id }
@@ -263,7 +335,7 @@ module.exports = async function handler(req, res) {
         query($ids: [ID!]) {
           items(ids: $ids) {
             id
-            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_DATE}"]) {
+            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_HEURE_FIN}", "${COL_DATE}", "${COL_PROJET}", "${COL_HORS_ZONE}", "${COL_DISTANCE_M}"]) {
               id text
               ... on BoardRelationValue { linked_item_ids }
               ... on HourValue { hour minute }
@@ -287,6 +359,12 @@ module.exports = async function handler(req, res) {
       const startCv = item.column_values.find(c => c.id === COL_HEURE_DEBUT);
       const startHour = startCv && typeof startCv.hour === 'number' ? startCv.hour : 0;
       const startMinute = startCv && typeof startCv.minute === 'number' ? startCv.minute : 0;
+      const oldProjectCv = item.column_values.find(c => c.id === COL_PROJET);
+      const oldProjectId = ((oldProjectCv && oldProjectCv.linked_item_ids) || [])[0] || null;
+      const existingHorsZoneCv = item.column_values.find(c => c.id === COL_HORS_ZONE);
+      const existingDistanceCv = item.column_values.find(c => c.id === COL_DISTANCE_M);
+      const existingHorsZone = existingHorsZoneCv && existingHorsZoneCv.text === 'v';
+      const existingDistanceM = Number((existingDistanceCv && existingDistanceCv.text) || 0) || 0;
 
       const now = nowInToronto();
       const rounded = roundClockToNearest15(now.hour, now.minute);
@@ -297,21 +375,34 @@ module.exports = async function handler(req, res) {
       // plus proche) pour éviter toute confusion entre les deux colonnes à l'affichage.
       const brutH = Math.round((round15(elapsedMin) / 60) * 100) / 100;
 
+      // Géorepérage : le segment qu'on ferme est revalidé avec la position GPS actuelle (contre
+      // l'ADRESSE DE L'ANCIEN projet), combinée (OU logique) avec ce qui avait déjà été détecté
+      // à son ouverture — un seul mauvais relevé (début OU fin) suffit à marquer le segment
+      // "hors zone". Le nouveau segment est évalué séparément contre le NOUVEAU projet.
+      const geoFences = await getProjectGeoFences(mondayToken, [oldProjectId, newProjectId]);
+      const closeGeo = evaluateGeofence(oldProjectId ? geoFences[String(oldProjectId)] : null, lat, lng);
+      const openGeo = evaluateGeofence(geoFences[String(newProjectId)], lat, lng);
+
+      const closeCv = {
+        [COL_HEURE_FIN]: { hour: rounded.hour, minute: rounded.minute },
+        [COL_GPS_FIN]: `${lat},${lng}`,
+        [COL_TOTAL_BRUT]: brutH,
+        [COL_TOTAL_AJUSTE]: brutH
+      };
+      if (closeGeo || existingHorsZoneCv) {
+        const combinedHorsZone = existingHorsZone || (closeGeo ? closeGeo.horsZone : false);
+        const combinedDistance = Math.max(existingDistanceM, closeGeo ? closeGeo.distanceM : 0);
+        closeCv[COL_HORS_ZONE] = { checked: combinedHorsZone ? 'true' : 'false' };
+        closeCv[COL_DISTANCE_M] = combinedDistance;
+      }
+
       // Ferme le segment actif — sans déduction de pause ici (appliquée une seule fois, à la
-      // toute fin de journée, sur le segment qui a le plus d'heures).
+      // toute fin de journée, sur le dernier segment).
       await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $item: ID!, $cv: JSON!) {
           change_multiple_column_values(board_id: $board, item_id: $item, column_values: $cv) { id }
         }
-      `, {
-        board: String(POINCONS_BOARD), item: String(itemId),
-        cv: JSON.stringify({
-          [COL_HEURE_FIN]: { hour: rounded.hour, minute: rounded.minute },
-          [COL_GPS_FIN]: `${lat},${lng}`,
-          [COL_TOTAL_BRUT]: brutH,
-          [COL_TOTAL_AJUSTE]: brutH
-        })
-      });
+      `, { board: String(POINCONS_BOARD), item: String(itemId), cv: JSON.stringify(closeCv) });
 
       // Ouvre le nouveau segment EXACTEMENT à l'heure arrondie de fin du précédent — aucune
       // seconde perdue ni dupliquée pour l'employé.
@@ -325,6 +416,10 @@ module.exports = async function handler(req, res) {
         [COL_STATUT]: { label: 'En attente' },
         [COL_TACHE]: String(tache).trim()
       };
+      if (openGeo) {
+        columnValues[COL_HORS_ZONE] = { checked: openGeo.horsZone ? 'true' : 'false' };
+        columnValues[COL_DISTANCE_M] = openGeo.distanceM;
+      }
       const created = await mondayGraphQL(mondayToken, `
         mutation($board: ID!, $name: String!, $cv: JSON!) {
           create_item(board_id: $board, item_name: $name, column_values: $cv) { id }
@@ -363,7 +458,7 @@ module.exports = async function handler(req, res) {
         query($ids: [ID!]) {
           items(ids: $ids) {
             id
-            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_DATE}"]) {
+            column_values(ids: ["${COL_EMPLOYE}", "${COL_HEURE_DEBUT}", "${COL_DATE}", "${COL_PROJET}", "${COL_HORS_ZONE}", "${COL_DISTANCE_M}"]) {
               id text
               ... on BoardRelationValue { linked_item_ids }
               ... on HourValue { hour minute }
@@ -385,6 +480,12 @@ module.exports = async function handler(req, res) {
       const startMinute = startCv && typeof startCv.minute === 'number' ? startCv.minute : 0;
       const dateCv = item.column_values.find(c => c.id === COL_DATE);
       const itemDate = (dateCv && dateCv.text) || nowInToronto().date;
+      const projectCv = item.column_values.find(c => c.id === COL_PROJET);
+      const finishProjectId = ((projectCv && projectCv.linked_item_ids) || [])[0] || null;
+      const existingHorsZoneCv = item.column_values.find(c => c.id === COL_HORS_ZONE);
+      const existingDistanceCv = item.column_values.find(c => c.id === COL_DISTANCE_M);
+      const existingHorsZone = existingHorsZoneCv && existingHorsZoneCv.text === 'v';
+      const existingDistanceM = Number((existingDistanceCv && existingDistanceCv.text) || 0) || 0;
 
       const now = nowInToronto();
       let elapsedMin = (now.hour * 60 + now.minute) - (startHour * 60 + startMinute);
@@ -448,6 +549,20 @@ module.exports = async function handler(req, res) {
         [COL_GPS_FIN]: `${lat},${lng}`,
         [COL_TOTAL_BRUT]: brutH
       };
+
+      // Géorepérage : combine (OU logique) ce qui avait déjà été détecté au début du poinçon avec
+      // la validation de la position GPS de fin — un seul mauvais relevé suffit à marquer le
+      // poinçon "hors zone". La distance conservée est la plus grande des deux (pire cas).
+      if (finishProjectId) {
+        const geoFences = await getProjectGeoFences(mondayToken, [finishProjectId]);
+        const finishGeo = evaluateGeofence(geoFences[String(finishProjectId)], lat, lng);
+        if (finishGeo || existingHorsZoneCv) {
+          const combinedHorsZone = existingHorsZone || (finishGeo ? finishGeo.horsZone : false);
+          const combinedDistance = Math.max(existingDistanceM, finishGeo ? finishGeo.distanceM : 0);
+          columnValues[COL_HORS_ZONE] = { checked: combinedHorsZone ? 'true' : 'false' };
+          columnValues[COL_DISTANCE_M] = combinedDistance;
+        }
+      }
       let currentAjusteMin;
       if (!biggestPrevItem) {
         // Le segment qu'on ferme maintenant a le plus d'heures (ou est à égalité) : il absorbe
