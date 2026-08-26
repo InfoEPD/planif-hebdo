@@ -33,6 +33,18 @@ const DIST_JSON_COL = 'long_text_mm668qje';
 const EMPLOYEES_BOARD = 8371777574;
 const EMP_TITRE_COL = 'statut_mkmx1x42'; // "Titre d'emploi" — détermine le Métier de l'employé
  
+// ----- Poinçons (même board que api/punch.js) — utilisé UNIQUEMENT pour détecter un poinçon
+// "ouvert" (début renseigné, fin manquante) créé manuellement par l'admin (admin.html, ajout
+// manuel avec Début seul) : l'employé doit alors voir dès l'ouverture de l'app qu'il est
+// actuellement poinçonné sur ce projet, sans avoir à cliquer "Débuter" lui-même.
+const POINCONS_BOARD = 18427410930;
+const COL_P_EMPLOYE = 'board_relation_mm6d1zaz';
+const COL_P_PROJET = 'board_relation_mm6ddgy';
+const COL_P_DATE = 'date_mm6d1p6e';
+const COL_P_HEURE_DEBUT = 'hour_mm6dfaha';
+const COL_P_HEURE_FIN = 'hour_mm6dfqfg';
+const COL_P_TACHE = 'text_mm6enx2b';
+ 
 // ----- Configuration Métiers / Tâches (voir admin-poincon.html, onglet Configuration) -----
 const METIERS_BOARD = 18427580793;
 const TACHES_BOARD = 18427580795;
@@ -97,7 +109,7 @@ module.exports = async function handler(req, res) {
   const weekDates = weekdayDates(today);
  
   const query = `
-    query($planningBoard: ID!, $week: [String]!, $projectsBoard: ID!, $stageCol: ID!, $stageVal: CompareValue!, $distBoard: ID!, $distCol: String!, $empId: [String]!, $empIds: [ID!], $metBoard: [ID!], $tachBoard: [ID!]) {
+    query($planningBoard: ID!, $week: [String]!, $projectsBoard: ID!, $stageCol: ID!, $stageVal: CompareValue!, $distBoard: ID!, $distCol: String!, $empId: [String]!, $empIds: [ID!], $metBoard: [ID!], $tachBoard: [ID!], $poinconsBoard: ID!, $pDateCol: String!, $pDate: [String]!) {
       planningWeek: items_page_by_column_values(board_id: $planningBoard, columns: [{ column_id: "${COL_DATE}", column_values: $week }], limit: 500) {
         items {
           id
@@ -105,6 +117,16 @@ module.exports = async function handler(req, res) {
           column_values(ids: ["${COL_PROJET}", "${COL_MENUISIERS}", "${COL_DATE}"]) {
             id text
             ... on BoardRelationValue { linked_item_ids linked_items { id name } }
+          }
+        }
+      }
+      poinconsToday: items_page_by_column_values(board_id: $poinconsBoard, columns: [{ column_id: $pDateCol, column_values: $pDate }], limit: 50) {
+        items {
+          id
+          column_values(ids: ["${COL_P_EMPLOYE}", "${COL_P_PROJET}", "${COL_P_HEURE_DEBUT}", "${COL_P_HEURE_FIN}", "${COL_P_TACHE}"]) {
+            id text
+            ... on BoardRelationValue { linked_item_ids linked_items { id name } }
+            ... on HourValue { hour minute }
           }
         }
       }
@@ -144,7 +166,8 @@ module.exports = async function handler(req, res) {
           planningBoard: String(PLANNING_BOARD), week: weekDates,
           projectsBoard: String(PROJECTS_BOARD), stageCol: PROJECT_STAGE_COL, stageVal: [PROJECT_ACTIVE_INDEX],
           distBoard: String(DISTANCES_BOARD), distCol: DIST_EMP_ID_COL, empId: [employeeItemId],
-          empIds: [employeeItemId], metBoard: [String(METIERS_BOARD)], tachBoard: [String(TACHES_BOARD)]
+          empIds: [employeeItemId], metBoard: [String(METIERS_BOARD)], tachBoard: [String(TACHES_BOARD)],
+          poinconsBoard: String(POINCONS_BOARD), pDateCol: COL_P_DATE, pDate: [today]
         }
       })
     });
@@ -255,9 +278,40 @@ module.exports = async function handler(req, res) {
       } catch (e) { /* ignore, pas de suggestion */ }
     }
  
+    // Poinçon "ouvert" (début renseigné, fin manquante) créé pour aujourd'hui — que ce soit par
+    // l'employé lui-même (app déjà en cours) ou manuellement par l'admin (ajout manuel avec Début
+    // seul, voir handleManualAdd() dans admin.html). Le mobile s'en sert pour afficher l'écran
+    // "actuellement poinçonné" dès l'ouverture, même si l'employé n'a jamais cliqué "Débuter" sur
+    // cet appareil (localStorage vide).
+    const poinconItems = (data.data.poinconsToday && data.data.poinconsToday.items) || [];
+    let openPunch = null;
+    for (const it of poinconItems) {
+      const cv = {};
+      (it.column_values || []).forEach(c => { cv[c.id] = c; });
+      const empCv = cv[COL_P_EMPLOYE];
+      const empIds = (empCv && empCv.linked_item_ids) || [];
+      if (!empIds.map(String).includes(employeeItemId)) continue;
+      const debutCv = cv[COL_P_HEURE_DEBUT];
+      const finCv = cv[COL_P_HEURE_FIN];
+      const hasDebut = debutCv && typeof debutCv.hour === 'number';
+      const hasFin = finCv && typeof finCv.hour === 'number';
+      if (!hasDebut || hasFin) continue; // pas ouvert : soit pas de début, soit déjà terminé
+      const projCv = cv[COL_P_PROJET];
+      const proj = (projCv && projCv.linked_items && projCv.linked_items[0]) || null;
+      openPunch = {
+        itemId: it.id,
+        projectId: proj ? proj.id : null,
+        projectName: proj ? proj.name : '',
+        tache: (cv[COL_P_TACHE] && cv[COL_P_TACHE].text) || '',
+        hour: debutCv.hour, minute: debutCv.minute,
+        date: today
+      };
+      break;
+    }
+ 
     res.status(200).json({
       today, plannedProjects: plannedProjectsFlagged, weekProjects: weekProjectsFlagged, activeProjects,
-      kmSuggested, mySchedule: mySchedule2, titre, taches
+      kmSuggested, mySchedule: mySchedule2, titre, taches, openPunch
     });
   } catch (err) {
     res.status(502).json({ error: 'Erreur de connexion à monday.com: ' + err.message });
