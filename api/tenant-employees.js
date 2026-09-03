@@ -11,7 +11,7 @@
 //   remove  { id }
 
 const { eq, and } = require('drizzle-orm');
-const { getDb, schema } = require('../db/client');
+const { getDb, schema } = require('./_db/client');
 const { requireTenantContext } = require('./_lib/tenant-context');
 
 module.exports = async function handler(req, res) {
