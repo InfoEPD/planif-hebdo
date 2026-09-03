@@ -39,6 +39,12 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: 'Session invalide ou expirée. Veuillez vous reconnecter.' });
     return;
   }
+    // Garde multi-tenant : ce fichier est réservé aux comptes EPD (voir Plan-Technique-Multi-Entite-Exacto.md).
+  // Un tenantId défini et différent de 'EPD' n'a pas accès ici.
+  if (claims.tenantId && claims.tenantId !== 'EPD') {
+    res.status(403).json({ error: "Ce compte n'a pas accès à cette application." });
+    return;
+  }
   const meta = claims || {};
   if (meta.role !== 'employee' || !meta.employeeItemId) {
     res.status(403).json({ error: "Ce compte n'a pas accès à l'interface de poinçon." });
