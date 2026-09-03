@@ -16,7 +16,7 @@
 
 const { createClerkClient } = require('@clerk/backend');
 const { eq } = require('drizzle-orm');
-const { getDb, schema } = require('../db/client');
+const { getDb, schema } = require('./_db/client');
 const { requireSuperuserContext } = require('./_lib/tenant-context');
 
 const DIACRITICS_RE = new RegExp('[̀-ͯ]', 'g');
