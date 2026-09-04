@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<!--
+  mon-entreprise.html — Portail Admin pour les tenants Postgres (non-EPD).
+
+  Séparé d'admin.html/planif.html/punch.html — ne les modifie pas, ne les importe pas. Réservé aux
+  comptes Clerk avec role === 'admin' ET un tenantId défini différent de 'EPD'. Un compte EPD qui
+  arrive ici est redirigé avec un message clair (EPD utilise admin.html/planif.html/punch.html).
+
+  Onglets : Configuration (Métiers, Primes, Logiciel de paie), Employés, Projets, et
+  Planification (visible seulement si le superuser a coché "Accès Planification" pour ce tenant —
+  actuellement un espace réservé, le vrai module de planification est un chantier futur distinct).
+-->
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exacto — Mon entreprise</title>
+<style>
+  :root {
+    --accent:#3b63ff; --accent-dark:#2547cc; --accent-bg:#e8edff;
+    --bg:#f4f6fb; --panel:#ffffff; --panel-alt:#eef2fa; --border:#dde4f0;
+    --text:#0b1e3d; --text-secondary:#5b6b85;
+    --danger:#d64545; --danger-bg:#fbe7e7; --ok:#1f9d55; --ok-bg:#e6f7ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent:#5b82ff; --accent-dark:#a9bdff; --accent-bg:#16264a;
+      --bg:#0d1b30; --panel:#142a4a; --panel-alt:#1b3255; --border:#2a4066;
+      --text:#eaf0fb; --text-secondary:#9db0d1;
+      --danger:#ff7a7a; --danger-bg:#3a1d24; --ok:#5fd88f; --ok-bg:#173926;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+  header h1 { font-size:16px; margin:0; }
+  nav.tabs { display:flex; gap:4px; padding:10px 20px 0; background:var(--panel); border-bottom:1px solid var(--border); }
+  nav.tabs button { border:none; background:none; padding:10px 14px; font-size:13px; font-weight:600; color:var(--text-secondary); cursor:pointer; border-bottom:3px solid transparent; }
+  nav.tabs button.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  main { max-width:920px; margin:0 auto; padding:20px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  .card .sub { font-size:12px; color:var(--text-secondary); margin:-6px 0 12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:7px 9px; border-bottom:1px solid var(--border); font-size:13px; text-align:left; }
+  th { background:var(--panel-alt); color:var(--text-secondary); font-weight:600; }
+  form.inline-form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+  form.inline-form label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary); }
+  input[type=text], input[type=email], input[type=tel], input[type=date], input[type=time], input[type=datetime-local], input[type=number], select, textarea {
+    padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--panel); color:var(--text); min-width:130px; font-family:inherit;
+  }
+  .checkline { display:flex; align-items:center; gap:6px; font-size:13px; }
+  .ptab-btn { border:none; background:none; padding:8px 12px; font-size:12.5px; font-weight:600; color:var(--text-secondary); cursor:pointer; border-bottom:3px solid transparent; position:relative; }
+  .ptab-btn.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  .unread-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--danger); margin-left:5px; vertical-align:middle; }
+  .msg-bubble-row { display:flex; margin-bottom:8px; }
+  .msg-bubble-row.mine { justify-content:flex-end; }
+  .msg-bubble { max-width:70%; border-radius:10px; padding:7px 10px; font-size:13px; background:var(--panel-alt); }
+  .msg-bubble.mine { background:var(--accent); color:#fff; }
+  .msg-bubble-meta { font-size:10px; opacity:.7; margin-bottom:3px; }
+  .msg-reply-box { display:flex; gap:8px; align-items:flex-end; margin-top:10px; }
+  .msg-reply-box textarea { flex:1; min-height:44px; resize:vertical; }
+  .thread-row { padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+  .thread-row:hover { background:var(--panel-alt); }
+  .thread-row .name { font-weight:600; font-size:13px; }
+  .thread-row .preview { font-size:12px; color:var(--text-secondary); margin-top:2px; }
+  .punch-edit-block { margin-top:8px; padding:10px; border-top:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .punch-edit-block label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary); }
+  button { border:none; border-radius:7px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-outline { background:var(--panel); border:1px solid var(--border); color:var(--text); }
+  .btn-sm { padding:4px 8px; font-size:11px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge-planification { background:var(--accent-bg); color:var(--accent-dark); }
+  .badge-en_cours { background:var(--ok-bg); color:var(--ok); }
+  .badge-termine { background:var(--panel-alt); color:var(--text-secondary); }
+  .empty-state { color:var(--text-secondary); padding:20px; text-align:center; font-size:13px; }
+  .address-suggestions { position:absolute; top:100%; left:0; right:0; z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:8px; margin-top:2px; max-height:220px; overflow-y:auto; box-shadow:0 6px 20px rgba(0,0,0,.12); }
+  .address-suggestions .addr-opt { padding:8px 10px; font-size:12.5px; cursor:pointer; border-bottom:1px solid var(--border); }
+  .address-suggestions .addr-opt:last-child { border-bottom:none; }
+  .address-suggestions .addr-opt:hover { background:var(--panel-alt); }
+  .address-suggestions .addr-empty { padding:8px 10px; font-size:12px; color:var(--text-secondary); }
+  #proj-address.addr-valid { border-color:var(--ok); }
+  #proj-address.addr-pending { border-color:var(--danger); }
+  .info-line { font-size:12px; color:var(--text-secondary); margin-bottom:10px; }
+  .toast { position:fixed; bottom:20px; right:20px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 16px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.15); z-index:999; }
+  .hidden { display:none !important; }
+  #clerk-signin { max-width:460px; margin:60px auto; }
+  #clerk-signin input[type="text"], #clerk-signin input[type="email"], #clerk-signin input[type="password"] { width:100% !important; box-sizing:border-box !important; }
+  .placeholder-box { padding:40px; text-align:center; color:var(--text-secondary); font-size:13px; }
+</style>
+</head>
+<body>
+
+<div id="clerk-signin"></div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1 id="header-title">🏢 Mon entreprise</h1>
+    <div id="clerk-user-button"></div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="config" class="active">Configuration</button>
+    <button data-tab="employees">Employés</button>
+    <button data-tab="projects">Projets</button>
+    <button data-tab="punches">Poinçons</button>
+    <button data-tab="planif" id="tab-planif-btn" class="hidden">Planification</button>
+  </nav>
+
+  <main>
+    <div id="tab-config">
+      <div class="card">
+        <h2>Réglages de plateforme</h2>
+        <p class="sub">Contrôlés par Exacto — informatifs seulement.</p>
+        <div class="info-line" id="config-readonly-flags">Chargement…</div>
+      </div>
+
+      <div class="card">
+        <h2>Générale</h2>
+        <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+          <div style="flex:1; min-width:240px; display:flex; flex-direction:column; gap:10px;">
+            <label>Nom de l'entreprise<input type="text" id="cfg-company-name" placeholder="Ex. Entreprises XYZ inc."></label>
+            <label style="position:relative;">Adresse de l'entreprise<input type="text" id="cfg-company-address" placeholder="Ex. 1234 rue Principale, Ville"></label>
+            <label>Code entreprise dans Avantage<input type="text" id="cfg-company-code-avantage" placeholder="Optionnel"></label>
+            <button type="button" class="btn-primary btn-sm" id="cfg-save-general" style="align-self:flex-start;">Enregistrer</button>
+          </div>
+          <div style="min-width:200px;">
+            <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:6px;">Logo de l'entreprise</label>
+            <div style="margin-bottom:8px;">
+              <img id="cfg-logo-preview" src="" alt="Logo" class="hidden" style="max-width:200px; max-height:100px; display:block; border:1px solid var(--border); border-radius:6px; background:#fff; padding:4px;">
+            </div>
+            <input type="file" id="cfg-logo-file" accept="image/*">
+            <button type="button" class="btn-outline btn-sm" id="cfg-logo-remove" style="margin-top:8px; display:block;">Retirer le logo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Métiers &amp; Tâches</h2>
+        <p class="sub">Chaque tâche détermine si le temps supplémentaire (1.5x/2x, CCQ) est applicable et le code Avantage utilisé à l'export de paie.</p>
+        <div id="job-titles-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-jobtitle" class="inline-form">
+          <label>Nom du métier<input type="text" id="jt-name" required placeholder="Ex. Menuisier"></label>
+          <button type="submit" class="btn-primary">Ajouter un métier</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Primes</h2>
+        <label class="checkline" style="margin-bottom:12px;">
+          <input type="checkbox" id="cfg-primes-enabled"> Gestion de primes applicables
+        </label>
+        <div id="primes-list"></div>
+        <form id="form-add-prime" class="inline-form">
+          <label>Nom<input type="text" id="pr-name" required placeholder="Ex. Temps et demi"></label>
+          <label>Pourcentage<input type="text" id="pr-percentage" placeholder="Ex. 50"></label>
+          <label>Code Avantage<input type="text" id="pr-code" placeholder="Optionnel"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Logiciel de paie</h2>
+        <select id="cfg-payroll">
+          <option value="">— Aucun —</option>
+          <option value="avantage">Export Avantage</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="tab-employees" class="hidden">
+      <div class="card">
+        <h2>Employés</h2>
+        <div id="employees-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-employee" class="inline-form">
+          <label>Nom complet<input type="text" id="emp-name" required></label>
+          <label>Téléphone<input type="tel" id="emp-phone"></label>
+          <label>Courriel<input type="email" id="emp-email"></label>
+          <label>Titre d'emploi
+            <select id="emp-jobtitle"><option value="">—</option></select>
+          </label>
+          <label>N° employé<input type="text" id="emp-number"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-projects" class="hidden">
+      <div class="card">
+        <h2>Projets</h2>
+        <p class="sub">Le rayon toléré définit la marge d'erreur GPS (en mètres) acceptée au poinçon pour ce chantier. « Hors CCQ seulement » restreint les tâches sélectionnables au poinçon aux tâches non-CCQ.</p>
+        <input type="text" id="proj-search" placeholder="Rechercher un projet…" style="margin-bottom:12px; width:100%; max-width:320px;">
+        <div id="projects-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-project" class="inline-form">
+          <label>Nom<input type="text" id="proj-name" required></label>
+          <label>Code<input type="text" id="proj-code"></label>
+          <label style="position:relative;">
+            Adresse du chantier
+            <input type="text" id="proj-address" autocomplete="off" placeholder="Ex. 1234 rue Principale, Ville">
+            <div id="proj-address-suggestions" class="address-suggestions hidden"></div>
+            <span id="proj-address-hint" class="sub" style="margin:2px 0 0;">Sélectionnez une adresse dans la liste pour activer la géolocalisation.</span>
+          </label>
+          <input type="hidden" id="proj-lat">
+          <input type="hidden" id="proj-lng">
+          <label># Projet Avantage<input type="text" id="proj-num-avantage" placeholder="Optionnel"></label>
+          <label>Rayon toléré (m)<input type="number" id="proj-rayon" min="1" value="500" style="width:90px;"></label>
+          <label class="checkline" style="margin-bottom:6px;"><input type="checkbox" id="proj-hors-ccq"> Hors CCQ seulement</label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-punches" class="hidden">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+          <button class="btn-outline btn-sm" id="pw-week-prev">‹ Semaine préc.</button>
+          <strong id="pw-week-label"></strong>
+          <button class="btn-outline btn-sm" id="pw-week-next">Semaine suiv. ›</button>
+          <span style="flex:1;"></span>
+          <span id="pw-pending-badge" class="badge badge-termine hidden"></span>
+        </div>
+        <nav style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);">
+          <button data-ptab="week" class="ptab-btn active">Vue de la semaine</button>
+          <button data-ptab="employee" class="ptab-btn">Par employé</button>
+          <button data-ptab="project" class="ptab-btn">Par projet</button>
+          <button data-ptab="messages" class="ptab-btn">Messages<span id="pw-messages-badge" class="unread-dot hidden"></span></button>
+          <button data-ptab="export" class="ptab-btn">Export paie</button>
+        </nav>
+
+        <div id="ptab-week"><div class="empty-state">Chargement…</div></div>
+
+        <div id="ptab-employee" class="hidden">
+          <label>Employé
+            <select id="pw-employee-select"><option value="">— Choisir —</option></select>
+          </label>
+          <div id="ptab-employee-content" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="ptab-project" class="hidden">
+          <label>Projet
+            <select id="pw-project-select"><option value="">— Choisir —</option></select>
+          </label>
+          <div id="ptab-project-content" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="ptab-messages" class="hidden">
+          <div id="pw-threads-list"><div class="empty-state">Chargement…</div></div>
+          <div id="pw-thread-detail" style="margin-top:14px;"></div>
+        </div>
+
+        <div id="ptab-export" class="hidden">
+          <p class="sub">Génère un résumé de paie (heures régulières, 1.5x, 2x, prime) pour la semaine sélectionnée ci-dessus. Bloqué s'il reste des poinçons en attente (non approuvés/rejetés).</p>
+          <button class="btn-primary" id="pw-export-btn">Générer l'export</button>
+          <div id="pw-export-result" style="margin-top:14px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ajouter un poinçon manuellement</h2>
+        <form id="form-manual-punch" class="inline-form">
+          <label>Employé
+            <select id="mp-employee" required><option value="">—</option></select>
+          </label>
+          <label>Projet
+            <select id="mp-project" required><option value="">—</option></select>
+          </label>
+          <label>Tâche (optionnel)
+            <select id="mp-tache"><option value="">—</option></select>
+          </label>
+          <label>Date<input type="date" id="mp-date" required></label>
+          <label>Début (optionnel)<input type="time" id="mp-start"></label>
+          <label>Fin (optionnel)<input type="time" id="mp-end"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-planif" class="hidden">
+      <div class="card">
+        <div class="placeholder-box">
+          📅 Le module de planification pour votre entreprise est en construction.<br>
+          Vos employés et projets créés ci-dessus y seront visibles une fois disponible.
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZXhhY3RvYXBwLmNhJA';
+
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.entries(attrs).forEach(([k, v]) => { if (k === 'src') s.src = v; else s.setAttribute(k, v); });
+    s.async = true; s.crossOrigin = 'anonymous';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function showToast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+async function callApi(resource, action, body) {
+  const token = await Clerk.session.getToken();
+  const res = await fetch('/api/tenant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(Object.assign({ resource, action }, body || {}))
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
+  return data;
+}
+
+// ===================== Onglets =====================
+let punchesTabLoaded = false;
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['config', 'employees', 'projects', 'punches', 'planif'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab);
+    });
+    if (btn.dataset.tab === 'punches' && !punchesTabLoaded) {
+      punchesTabLoaded = true;
+      initPunchesTab();
+    }
+  });
+});
+
+// ===================== Configuration =====================
+let configCache = null;
+let tachesCache = [];
+let pendingLogoDataUrl = undefined; // undefined = pas modifié, null = retiré, string = nouveau logo
+
+async function loadConfig() {
+  const data = await callApi('config', 'get');
+  configCache = data;
+  tachesCache = data.taches || [];
+  const s = data.settings || {};
+  document.getElementById('config-readonly-flags').innerHTML =
+    `Entreprise de la construction (CCQ) : <strong>${s.ccqEnabled ? 'Activé' : 'Désactivé'}</strong> &nbsp;·&nbsp; ` +
+    `Accès au module Planification : <strong>${s.planifEnabled ? 'Activé' : 'Désactivé'}</strong>`;
+  document.getElementById('cfg-primes-enabled').checked = !!s.primesEnabled;
+  document.getElementById('cfg-payroll').value = s.payrollSoftware || '';
+  document.getElementById('tab-planif-btn').classList.toggle('hidden', !s.planifEnabled);
+  document.getElementById('cfg-company-name').value = s.companyName || '';
+  document.getElementById('cfg-company-address').value = s.companyAddress || '';
+  document.getElementById('cfg-company-code-avantage').value = s.companyCodeAvantage || '';
+  pendingLogoDataUrl = undefined;
+  const logoImg = document.getElementById('cfg-logo-preview');
+  if (s.companyLogo) { logoImg.src = s.companyLogo; logoImg.classList.remove('hidden'); }
+  else { logoImg.src = ''; logoImg.classList.add('hidden'); }
+  renderJobTitles(data.jobTitles || []);
+  renderPrimes(data.primes || []);
+  renderJobTitleOptions(data.jobTitles || []);
+}
+
+let editingJobTitleId = null;
+let jobTitlesCache = [];
+let editingTacheId = null;
+
+function renderJobTitles(list) {
+  jobTitlesCache = list;
+  const el = document.getElementById('job-titles-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun métier ajouté.</div>'; return; }
+  el.innerHTML = list.map(jt => {
+    const taches = tachesCache.filter(t => t.jobTitleId === jt.id);
+    const headerHtml = jt.id === editingJobTitleId
+      ? `<input type="text" class="edit-jt-name" value="${escapeHtml(jt.name)}" style="font-weight:600;">
+         <button class="btn-primary btn-sm" data-act="save-jt" data-id="${jt.id}">Enregistrer</button>
+         <button class="btn-outline btn-sm" data-act="cancel-jt">Annuler</button>`
+      : `<strong style="flex:1;">${escapeHtml(jt.name)}</strong>
+         <button class="btn-outline btn-sm" data-act="edit-jt" data-id="${jt.id}">Modifier</button>
+         <button class="btn-outline btn-sm" data-act="del-jt" data-id="${jt.id}">Supprimer le métier</button>`;
+    const tachesRowsHtml = taches.length
+      ? taches.map(t => {
+          if (t.id === editingTacheId) {
+            return `<tr data-tache-id="${t.id}">
+              <td><input type="text" class="edit-tache-name" value="${escapeHtml(t.name)}"></td>
+              <td style="text-align:center;"><input type="checkbox" class="edit-tache-ccq" ${t.ccq ? 'checked' : ''}></td>
+              <td><input type="text" class="edit-tache-code" value="${escapeHtml(t.codeAvantage || '')}"></td>
+              <td style="text-align:right; white-space:nowrap;">
+                <button class="btn-primary btn-sm" data-act="save-tache" data-id="${t.id}">Enregistrer</button>
+                <button class="btn-outline btn-sm" data-act="cancel-tache">Annuler</button>
+              </td>
+            </tr>`;
+          }
+          return `<tr data-tache-id="${t.id}">
+            <td>${escapeHtml(t.name)}</td>
+            <td style="text-align:center;">${t.ccq ? '✅' : '—'}</td>
+            <td>${escapeHtml(t.codeAvantage || '—')}</td>
+            <td style="text-align:right; white-space:nowrap;">
+              <button class="btn-outline btn-sm" data-act="edit-tache" data-id="${t.id}">Modifier</button>
+              <button class="btn-outline btn-sm" data-act="del-tache" data-id="${t.id}">Supprimer</button>
+            </td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="4" class="empty-state" style="padding:10px;">Aucune tâche pour ce métier.</td></tr>`;
+    return `<div class="jt-block" style="border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px;" data-jt-id="${jt.id}">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">${headerHtml}</div>
+      <table><thead><tr><th>Tâche</th><th style="text-align:center;">CCQ</th><th>Code Avantage</th><th></th></tr></thead>
+        <tbody>${tachesRowsHtml}</tbody></table>
+      <form class="inline-form add-tache-form" data-jobtitle-id="${jt.id}">
+        <label>Nom de la tâche<input type="text" class="tache-name" required></label>
+        <label class="checkline" style="margin-bottom:6px;"><input type="checkbox" class="tache-ccq" checked> CCQ</label>
+        <label>Code Avantage<input type="text" class="tache-code" placeholder="Optionnel"></label>
+        <button type="submit" class="btn-primary btn-sm">Ajouter la tâche</button>
+      </form>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-act="del-jt"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Supprimer ce métier et toutes ses tâches ?')) return;
+      try { await callApi('config', 'deleteJobTitle', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-jt"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingJobTitleId = btn.dataset.id; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-jt"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingJobTitleId = null; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="save-jt"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.jt-block');
+      const name = row.querySelector('.edit-jt-name').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updateJobTitle', { id: btn.dataset.id, name });
+        editingJobTitleId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+
+  el.querySelectorAll('[data-act="del-tache"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('config', 'deleteTache', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-tache"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingTacheId = btn.dataset.id; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-tache"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingTacheId = null; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="save-tache"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const name = row.querySelector('.edit-tache-name').value.trim();
+      const ccq = row.querySelector('.edit-tache-ccq').checked;
+      const codeAvantage = row.querySelector('.edit-tache-code').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updateTache', { id: btn.dataset.id, name, ccq, codeAvantage });
+        editingTacheId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+
+  el.querySelectorAll('.add-tache-form').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const jobTitleId = form.dataset.jobtitleId;
+      const name = form.querySelector('.tache-name').value.trim();
+      const ccq = form.querySelector('.tache-ccq').checked;
+      const codeAvantage = form.querySelector('.tache-code').value.trim();
+      if (!name) { showToast('Le nom de la tâche est requis.'); return; }
+      try {
+        await callApi('config', 'createTache', { jobTitleId, name, ccq, codeAvantage });
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+function renderJobTitleOptions(list) {
+  const sel = document.getElementById('emp-jobtitle');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">—</option>' + list.map(jt => `<option value="${escapeHtml(jt.name)}">${escapeHtml(jt.name)}</option>`).join('');
+  sel.value = current;
+}
+
+let editingPrimeId = null;
+let primesCache = [];
+
+function renderPrimes(list) {
+  primesCache = list;
+  const el = document.getElementById('primes-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucune prime ajoutée.</div>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Nom</th><th>%</th><th>Code</th><th></th></tr></thead><tbody>${list.map(p => {
+    if (p.id === editingPrimeId) {
+      return `<tr data-id="${p.id}">
+        <td><input type="text" class="edit-pr-name" value="${escapeHtml(p.name)}"></td>
+        <td><input type="text" class="edit-pr-percentage" value="${escapeHtml(p.percentage || '')}"></td>
+        <td><input type="text" class="edit-pr-code" value="${escapeHtml(p.code || '')}"></td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-primary btn-sm" data-act="save-prime" data-id="${p.id}">Enregistrer</button>
+          <button class="btn-outline btn-sm" data-act="cancel-prime">Annuler</button>
+        </td>
+      </tr>`;
+    }
+    return `<tr data-id="${p.id}">
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.percentage || '—')}</td>
+      <td>${escapeHtml(p.code || '—')}</td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn-outline btn-sm" data-act="edit-prime" data-id="${p.id}">Modifier</button>
+        <button class="btn-outline btn-sm" data-act="del-prime" data-id="${p.id}">Supprimer</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-act="del-prime"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('config', 'deletePrime', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-prime"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingPrimeId = btn.dataset.id; renderPrimes(primesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-prime"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingPrimeId = null; renderPrimes(primesCache); });
+  });
+  el.querySelectorAll('[data-act="save-prime"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const name = row.querySelector('.edit-pr-name').value.trim();
+      const percentage = row.querySelector('.edit-pr-percentage').value.trim();
+      const code = row.querySelector('.edit-pr-code').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updatePrime', { id: btn.dataset.id, name, percentage, code });
+        editingPrimeId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+document.getElementById('form-add-jobtitle').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('jt-name').value.trim();
+  try {
+    await callApi('config', 'createJobTitle', { name });
+    e.target.reset();
+    await loadConfig();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+document.getElementById('form-add-prime').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('pr-name').value.trim();
+  const percentage = document.getElementById('pr-percentage').value.trim();
+  const code = document.getElementById('pr-code').value.trim();
+  try {
+    await callApi('config', 'createPrime', { name, percentage, code });
+    e.target.reset();
+    await loadConfig();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+async function saveSettingsFromInputs() {
+  const primesEnabled = document.getElementById('cfg-primes-enabled').checked;
+  const payrollSoftware = document.getElementById('cfg-payroll').value || null;
+  try {
+    await callApi('config', 'updateSettings', { primesEnabled, payrollSoftware });
+    showToast('Réglages enregistrés.');
+  } catch (err) { showToast('Erreur: ' + err.message); }
+}
+document.getElementById('cfg-primes-enabled').addEventListener('change', saveSettingsFromInputs);
+document.getElementById('cfg-payroll').addEventListener('change', saveSettingsFromInputs);
+
+// ----- Générale (nom/adresse/logo/code Avantage de l'entreprise) -----
+document.getElementById('cfg-logo-file').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 1.5 * 1024 * 1024) { showToast('Le logo doit faire moins de 1.5 Mo.'); e.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    pendingLogoDataUrl = reader.result;
+    const img = document.getElementById('cfg-logo-preview');
+    img.src = pendingLogoDataUrl;
+    img.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('cfg-logo-remove').addEventListener('click', () => {
+  pendingLogoDataUrl = null;
+  const img = document.getElementById('cfg-logo-preview');
+  img.src = '';
+  img.classList.add('hidden');
+  document.getElementById('cfg-logo-file').value = '';
+});
+
+document.getElementById('cfg-save-general').addEventListener('click', async () => {
+  const companyName = document.getElementById('cfg-company-name').value.trim();
+  const companyAddress = document.getElementById('cfg-company-address').value.trim();
+  const companyCodeAvantage = document.getElementById('cfg-company-code-avantage').value.trim();
+  const primesEnabled = document.getElementById('cfg-primes-enabled').checked;
+  const payrollSoftware = document.getElementById('cfg-payroll').value || null;
+  const payload = { primesEnabled, payrollSoftware, companyName, companyAddress, companyCodeAvantage };
+  if (pendingLogoDataUrl !== undefined) payload.companyLogo = pendingLogoDataUrl;
+  try {
+    await callApi('config', 'updateSettings', payload);
+    pendingLogoDataUrl = undefined;
+    showToast('Réglages généraux enregistrés.');
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Employés =====================
+let editingEmployeeId = null;
+let creatingAccessId = null;
+let employeesCache = [];
+
+function jobTitleOptionsHtml(selected) {
+  const list = (configCache && configCache.jobTitles) || jobTitlesCache || [];
+  return '<option value="">—</option>' + list.map(jt => `<option value="${escapeHtml(jt.name)}" ${jt.name === selected ? 'selected' : ''}>${escapeHtml(jt.name)}</option>`).join('');
+}
+
+async function loadEmployees() {
+  const { employees } = await callApi('employees', 'list');
+  employeesCache = employees;
+  renderEmployees();
+}
+
+function renderEmployees() {
+  const list = employeesCache;
+  const el = document.getElementById('employees-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun employé pour l\'instant.</div>'; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>Nom</th><th>Téléphone</th><th>Courriel</th><th>Titre</th><th>N°</th><th>Statut</th><th>Accès poinçon</th><th></th>
+    </tr></thead><tbody>${list.map(e => {
+      if (e.id === editingEmployeeId) {
+        return `<tr data-id="${e.id}">
+          <td><input type="text" class="edit-emp-name" value="${escapeHtml(e.fullName)}"></td>
+          <td><input type="tel" class="edit-emp-phone" value="${escapeHtml(e.phone || '')}"></td>
+          <td><input type="email" class="edit-emp-email" value="${escapeHtml(e.email || '')}"></td>
+          <td><select class="edit-emp-jobtitle">${jobTitleOptionsHtml(e.jobTitle)}</select></td>
+          <td><input type="text" class="edit-emp-number" value="${escapeHtml(e.employeeNumber || '')}"></td>
+          <td><span class="badge ${e.status === 'actif' ? 'badge-en_cours' : 'badge-termine'}">${e.status === 'actif' ? 'Actif' : 'Inactif'}</span></td>
+          <td>—</td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn-primary btn-sm" data-act="save-emp" data-id="${e.id}">Enregistrer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-emp">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      if (e.id === creatingAccessId) {
+        return `<tr data-id="${e.id}">
+          <td colspan="6">
+            <strong>${escapeHtml(e.fullName)}</strong> — créer l'accès de connexion (module Poinçon)
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary);">Courriel<input type="email" class="access-email" value="${escapeHtml(e.email || '')}" required></label>
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary);">Mot de passe temporaire<input type="text" class="access-password" placeholder="Min. 5 caractères" required></label>
+            </div>
+            <p class="sub" style="margin:8px 0 0;">L'employé devra changer ce mot de passe à sa première connexion.</p>
+          </td>
+          <td style="text-align:right; white-space:nowrap; vertical-align:top;">
+            <button class="btn-primary btn-sm" data-act="save-access" data-id="${e.id}">Créer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-access">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      return `<tr data-id="${e.id}">
+        <td>${escapeHtml(e.fullName)}</td>
+        <td>${escapeHtml(e.phone || '—')}</td>
+        <td>${escapeHtml(e.email || '—')}</td>
+        <td>${escapeHtml(e.jobTitle || '—')}</td>
+        <td>${escapeHtml(e.employeeNumber || '—')}</td>
+        <td><span class="badge ${e.status === 'actif' ? 'badge-en_cours' : 'badge-termine'}">${e.status === 'actif' ? 'Actif' : 'Inactif'}</span></td>
+        <td>${e.clerkUserId
+            ? '<span class="badge badge-en_cours">Actif</span>'
+            : `<button class="btn-outline btn-sm" data-act="create-access" data-id="${e.id}">Créer un accès</button>`}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-outline btn-sm" data-act="edit-emp" data-id="${e.id}">Modifier</button>
+          <button class="btn-outline btn-sm" data-act="toggle-emp" data-id="${e.id}" data-status="${e.status}">${e.status === 'actif' ? 'Désactiver' : 'Activer'}</button>
+          <button class="btn-outline btn-sm" data-act="del-emp" data-id="${e.id}">Supprimer</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-act="toggle-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const next = btn.dataset.status === 'actif' ? 'inactif' : 'actif';
+      try { await callApi('employees', 'update', { id: btn.dataset.id, status: next }); await loadEmployees(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="del-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('employees', 'remove', { id: btn.dataset.id }); await loadEmployees(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-emp"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingEmployeeId = btn.dataset.id; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="cancel-emp"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingEmployeeId = null; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="save-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const fullName = row.querySelector('.edit-emp-name').value.trim();
+      const phone = row.querySelector('.edit-emp-phone').value.trim();
+      const email = row.querySelector('.edit-emp-email').value.trim();
+      const jobTitle = row.querySelector('.edit-emp-jobtitle').value;
+      const employeeNumber = row.querySelector('.edit-emp-number').value.trim();
+      if (!fullName) { showToast('Le nom complet est requis.'); return; }
+      try {
+        await callApi('employees', 'update', { id: btn.dataset.id, fullName, phone, email, jobTitle, employeeNumber });
+        editingEmployeeId = null;
+        await loadEmployees();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="create-access"]').forEach(btn => {
+    btn.addEventListener('click', () => { creatingAccessId = btn.dataset.id; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="cancel-access"]').forEach(btn => {
+    btn.addEventListener('click', () => { creatingAccessId = null; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="save-access"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const email = row.querySelector('.access-email').value.trim();
+      const password = row.querySelector('.access-password').value;
+      if (!email) { showToast('Le courriel est requis.'); return; }
+      if (!password || password.length < 5) { showToast('Le mot de passe doit contenir au moins 5 caractères.'); return; }
+      try {
+        await callApi('employees', 'createAccess', { id: btn.dataset.id, email, password });
+        creatingAccessId = null;
+        await loadEmployees();
+        showToast('Accès créé avec succès.');
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+document.getElementById('form-add-employee').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fullName = document.getElementById('emp-name').value.trim();
+  const phone = document.getElementById('emp-phone').value.trim();
+  const email = document.getElementById('emp-email').value.trim();
+  const jobTitle = document.getElementById('emp-jobtitle').value;
+  const employeeNumber = document.getElementById('emp-number').value.trim();
+  try {
+    await callApi('employees', 'create', { fullName, phone, email, jobTitle, employeeNumber });
+    e.target.reset();
+    await loadEmployees();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Recherche d'adresse (Nominatim / OpenStreetMap) =====================
+// Même famille d'outils que le reste de l'app (OSRM/Leaflet, déjà utilisés pour les distances et
+// les cartes) — gratuit, sans clé API. Biaisé sur le Québec (viewbox) pour de meilleurs résultats,
+// et addressdetails=1 pour aider Nominatim à retrouver le numéro civique quand les données
+// OpenStreetMap le permettent (la couverture des numéros civiques varie selon les secteurs).
+// Une fois une suggestion choisie, l'utilisateur peut continuer à ajuster le texte (ex. corriger
+// ou ajouter le numéro civique manquant) sans perdre les coordonnées déjà capturées — seul un champ
+// vidé complètement réinitialise la validation.
+const QC_VIEWBOX = '-79.9,45.0,-56.9,62.6';
+
+function attachAddressAutocomplete({ inputEl, suggestEl, latEl, lngEl, hintEl, initialValidated }) {
+  let timer = null;
+  let validated = !!initialValidated;
+
+  function hide() { suggestEl.classList.add('hidden'); suggestEl.innerHTML = ''; }
+
+  function mark() {
+    inputEl.classList.remove('addr-valid', 'addr-pending');
+    if (!inputEl.value.trim()) {
+      hintEl.textContent = 'Sélectionnez une adresse dans la liste pour activer la géolocalisation.';
+      return;
+    }
+    if (validated) {
+      inputEl.classList.add('addr-valid');
+      hintEl.textContent = '✓ Adresse géolocalisée. Vous pouvez ajuster le texte (ex. ajouter le numéro civique) sans perdre la localisation.';
+    } else {
+      inputEl.classList.add('addr-pending');
+      hintEl.textContent = '⚠ Choisissez une adresse dans la liste ci-dessous pour la géolocaliser.';
+    }
+  }
+
+  async function search(query) {
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=7&countrycodes=ca&viewbox=' + QC_VIEWBOX + '&bounded=0&q=' + encodeURIComponent(query);
+      const res = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
+      const results = await res.json();
+      if (!results.length) {
+        suggestEl.innerHTML = '<div class="addr-empty">Aucune adresse trouvée.</div>';
+        suggestEl.classList.remove('hidden');
+        return;
+      }
+      suggestEl.innerHTML = results.map((r, i) => `<div class="addr-opt" data-i="${i}">${escapeHtml(r.display_name)}</div>`).join('');
+      suggestEl.classList.remove('hidden');
+      suggestEl.querySelectorAll('.addr-opt').forEach(opt => {
+        opt.addEventListener('click', () => {
+          const r = results[Number(opt.dataset.i)];
+          inputEl.value = r.display_name;
+          latEl.value = r.lat;
+          lngEl.value = r.lon;
+          validated = true;
+          mark();
+          hide();
+        });
+      });
+    } catch (err) {
+      suggestEl.innerHTML = '<div class="addr-empty">Erreur de recherche d’adresse.</div>';
+      suggestEl.classList.remove('hidden');
+    }
+  }
+
+  inputEl.addEventListener('input', () => {
+    const q = inputEl.value.trim();
+    if (!q) { validated = false; latEl.value = ''; lngEl.value = ''; }
+    mark();
+    clearTimeout(timer);
+    if (q.length < 4) { hide(); return; }
+    timer = setTimeout(() => search(q), 450);
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#' + inputEl.id) && !e.target.closest('#' + suggestEl.id)) hide();
+  });
+  mark();
+
+  return {
+    isValidated: () => validated,
+    reset: () => { validated = false; mark(); },
+  };
+}
+
+let addProjectAddressAC = attachAddressAutocomplete({
+  inputEl: document.getElementById('proj-address'),
+  suggestEl: document.getElementById('proj-address-suggestions'),
+  latEl: document.getElementById('proj-lat'),
+  lngEl: document.getElementById('proj-lng'),
+  hintEl: document.getElementById('proj-address-hint'),
+  initialValidated: false,
+});
+
+// ===================== Projets =====================
+const PROJECT_STATUS_LABELS = { en_planification: 'En planification', en_cours: 'En cours', termine: 'Terminé' };
+let editingProjectId = null;
+let projectsCache = [];
+
+async function loadProjects() {
+  const { projects } = await callApi('projects', 'list');
+  projectsCache = projects;
+  renderProjects();
+}
+
+function projectStatusSelectHtml(p) {
+  return `<select data-act="status" data-id="${p.id}">
+      ${Object.entries(PROJECT_STATUS_LABELS).map(([v, l]) => `<option value="${v}" ${p.status === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select>`;
+}
+
+let projectSearchTerm = '';
+
+function renderProjects() {
+  const term = projectSearchTerm.trim().toLowerCase();
+  const list = term ? projectsCache.filter(p => (p.name || '').toLowerCase().includes(term) || (p.code || '').toLowerCase().includes(term)) : projectsCache;
+  const el = document.getElementById('projects-list');
+  if (!projectsCache.length) { el.innerHTML = '<div class="empty-state">Aucun projet pour l\'instant.</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun projet ne correspond à la recherche.</div>'; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>Nom</th><th>Code</th><th>Adresse</th><th>Statut</th><th># Avantage</th><th>Rayon (m)</th><th>Hors CCQ</th><th></th>
+    </tr></thead><tbody>${list.map(p => {
+      if (p.id === editingProjectId) {
+        return `<tr data-id="${p.id}">
+          <td><input type="text" class="edit-proj-name" value="${escapeHtml(p.name)}"></td>
+          <td><input type="text" class="edit-proj-code" value="${escapeHtml(p.code || '')}"></td>
+          <td style="position:relative; min-width:220px;">
+            <input type="text" id="edit-proj-address-${p.id}" value="${escapeHtml(p.address || '')}" autocomplete="off">
+            <div id="edit-proj-address-suggestions-${p.id}" class="address-suggestions hidden"></div>
+            <div class="sub" id="edit-proj-address-hint-${p.id}" style="margin:2px 0 0;"></div>
+            <input type="hidden" id="edit-proj-lat-${p.id}" value="${p.lat != null ? p.lat : ''}">
+            <input type="hidden" id="edit-proj-lng-${p.id}" value="${p.lng != null ? p.lng : ''}">
+          </td>
+          <td>${projectStatusSelectHtml(p)}</td>
+          <td><input type="text" class="edit-proj-num-avantage" value="${escapeHtml(p.numAvantage || '')}" style="width:100px;"></td>
+          <td><input type="number" min="1" class="edit-proj-rayon" value="${p.rayonM != null ? p.rayonM : 500}" style="width:80px;"></td>
+          <td><input type="checkbox" class="edit-proj-hors-ccq" ${p.horsCcq ? 'checked' : ''}></td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn-primary btn-sm" data-act="save-proj" data-id="${p.id}">Enregistrer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-proj">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      return `<tr data-id="${p.id}">
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.code || '—')}</td>
+        <td>${escapeHtml(p.address || '—')}</td>
+        <td>${projectStatusSelectHtml(p)}</td>
+        <td>${escapeHtml(p.numAvantage || '—')}</td>
+        <td>${p.rayonM != null ? p.rayonM : 500}</td>
+        <td>${p.horsCcq ? 'Oui' : '—'}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-outline btn-sm" data-act="edit-proj" data-id="${p.id}">Modifier</button>
+          <button class="btn-outline btn-sm" data-act="del-proj" data-id="${p.id}">Supprimer</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+
+  el.querySelectorAll('[data-act="status"]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      try {
+        await callApi('projects', 'update', { id: sel.dataset.id, status: sel.value });
+        showToast('Statut mis à jour.');
+        const row = projectsCache.find(x => x.id === sel.dataset.id);
+        if (row) row.status = sel.value;
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="del-proj"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('projects', 'remove', { id: btn.dataset.id }); await loadProjects(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-proj"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProjectId = btn.dataset.id; renderProjects(); });
+  });
+  el.querySelectorAll('[data-act="cancel-proj"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProjectId = null; renderProjects(); });
+  });
+
+  if (editingProjectId) {
+    const p = list.find(x => x.id === editingProjectId);
+    if (p) {
+      const editAC = attachAddressAutocomplete({
+        inputEl: document.getElementById(`edit-proj-address-${p.id}`),
+        suggestEl: document.getElementById(`edit-proj-address-suggestions-${p.id}`),
+        latEl: document.getElementById(`edit-proj-lat-${p.id}`),
+        lngEl: document.getElementById(`edit-proj-lng-${p.id}`),
+        hintEl: document.getElementById(`edit-proj-address-hint-${p.id}`),
+        initialValidated: p.lat != null && p.lng != null,
+      });
+      el.querySelector(`[data-act="save-proj"][data-id="${p.id}"]`).addEventListener('click', async () => {
+        const row = el.querySelector(`tr[data-id="${p.id}"]`);
+        const name = row.querySelector('.edit-proj-name').value.trim();
+        const code = row.querySelector('.edit-proj-code').value.trim();
+        const address = document.getElementById(`edit-proj-address-${p.id}`).value.trim();
+        if (address && !editAC.isValidated()) {
+          showToast('Veuillez sélectionner une adresse dans la liste de suggestions.');
+          return;
+        }
+        const lat = address ? parseFloat(document.getElementById(`edit-proj-lat-${p.id}`).value) : undefined;
+        const lng = address ? parseFloat(document.getElementById(`edit-proj-lng-${p.id}`).value) : undefined;
+        const numAvantage = row.querySelector('.edit-proj-num-avantage').value.trim();
+        const rayonM = parseInt(row.querySelector('.edit-proj-rayon').value, 10) || 500;
+        const horsCcq = row.querySelector('.edit-proj-hors-ccq').checked;
+        if (!name) { showToast('Le nom du projet est requis.'); return; }
+        try {
+          await callApi('projects', 'update', { id: p.id, name, code, address, lat, lng, numAvantage, rayonM, horsCcq });
+          editingProjectId = null;
+          await loadProjects();
+        } catch (err) { showToast('Erreur: ' + err.message); }
+      });
+    }
+  }
+}
+
+document.getElementById('proj-search').addEventListener('input', (e) => {
+  projectSearchTerm = e.target.value;
+  renderProjects();
+});
+
+document.getElementById('form-add-project').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('proj-name').value.trim();
+  const code = document.getElementById('proj-code').value.trim();
+  const address = document.getElementById('proj-address').value.trim();
+  if (address && !addProjectAddressAC.isValidated()) {
+    showToast('Veuillez sélectionner une adresse dans la liste de suggestions.');
+    return;
+  }
+  const lat = address ? parseFloat(document.getElementById('proj-lat').value) : undefined;
+  const lng = address ? parseFloat(document.getElementById('proj-lng').value) : undefined;
+  const numAvantage = document.getElementById('proj-num-avantage').value.trim();
+  const rayonM = parseInt(document.getElementById('proj-rayon').value, 10) || 500;
+  const horsCcq = document.getElementById('proj-hors-ccq').checked;
+  try {
+    await callApi('projects', 'create', { name, code, address, lat, lng, numAvantage, rayonM, horsCcq });
+    e.target.reset();
+    document.getElementById('proj-rayon').value = 500;
+    addProjectAddressAC.reset();
+    await loadProjects();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Poinçons (admin) =====================
+// weekStart = dimanche (YYYY-MM-DD, calendrier local) — même convention que api/tenant.js.
+function pwToLocalISODate(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function pwSundayOfWeek(d) {
+  const dt = (d instanceof Date) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : new Date(d + 'T12:00:00');
+  dt.setDate(dt.getDate() - dt.getDay());
+  return pwToLocalISODate(dt);
+}
+function pwAddDays(sunday, days) {
+  const dt = new Date(sunday + 'T12:00:00');
+  dt.setDate(dt.getDate() + days);
+  return pwToLocalISODate(dt);
+}
+function pwFmtWeekLabel(sunday) {
+  const start = new Date(sunday + 'T12:00:00');
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const f = d => d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+  return `Semaine du ${f(start)} au ${f(end)}`;
+}
+function pwFmtTime(iso) {
+  if (!iso) return '…';
+  return new Date(iso).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
+}
+function pwFmtDate(iso) {
+  return new Date(iso).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'America/Toronto' });
+}
+function pwStatusLabel(status) {
+  return { ouvert: 'En cours', ferme: 'En attente', auto_ferme: 'En attente (auto)', approuve: 'Approuvé', rejete: 'Rejeté', exporte: 'Exporté' }[status] || status;
+}
+function pwStatusBadgeClass(status) {
+  if (status === 'approuve' || status === 'exporte') return 'badge-en_cours';
+  if (status === 'rejete') return 'badge-termine';
+  return 'badge-planification';
+}
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+let pwWeekStart = pwSundayOfWeek(new Date());
+let pwPunchesCache = [];
+let pwEditingPunchId = null;
+let pwActivePtab = 'week';
+let pwSelectedEmployeeId = '';
+let pwSelectedProjectId = '';
+let pwThreadsCache = [];
+let pwSelectedThreadEmployeeId = null;
+let pwThreadMessagesCache = [];
+
+async function initPunchesTab() {
+  document.getElementById('pw-week-label').textContent = pwFmtWeekLabel(pwWeekStart);
+  document.querySelectorAll('.ptab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ptab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      pwActivePtab = btn.dataset.ptab;
+      ['week', 'employee', 'project', 'messages', 'export'].forEach(t => {
+        document.getElementById('ptab-' + t).classList.toggle('hidden', t !== pwActivePtab);
+      });
+      if (pwActivePtab === 'messages') loadPwThreads();
+      if (pwActivePtab === 'export') document.getElementById('pw-export-result').innerHTML = '';
+    });
+  });
+  document.getElementById('pw-week-prev').addEventListener('click', async () => {
+    pwWeekStart = pwAddDays(pwWeekStart, -7);
+    await loadPunchesWeek();
+  });
+  document.getElementById('pw-week-next').addEventListener('click', async () => {
+    pwWeekStart = pwAddDays(pwWeekStart, 7);
+    await loadPunchesWeek();
+  });
+  document.getElementById('pw-employee-select').addEventListener('change', (e) => {
+    pwSelectedEmployeeId = e.target.value;
+    renderPtabEmployee();
+  });
+  document.getElementById('pw-project-select').addEventListener('change', (e) => {
+    pwSelectedProjectId = e.target.value;
+    renderPtabProject();
+  });
+  document.getElementById('pw-export-btn').addEventListener('click', runPwExport);
+  populatePwSelects();
+  await loadPunchesWeek();
+}
+
+function populatePwSelects() {
+  const empSel = document.getElementById('pw-employee-select');
+  const curEmp = empSel.value;
+  empSel.innerHTML = '<option value="">— Choisir —</option>' + employeesCache.map(e => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`).join('');
+  empSel.value = curEmp;
+
+  const projSel = document.getElementById('pw-project-select');
+  const curProj = projSel.value;
+  projSel.innerHTML = '<option value="">— Choisir —</option>' + projectsCache.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  projSel.value = curProj;
+
+  const mpEmp = document.getElementById('mp-employee');
+  mpEmp.innerHTML = '<option value="">—</option>' + employeesCache.filter(e => e.status === 'actif').map(e => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`).join('');
+  const mpProj = document.getElementById('mp-project');
+  mpProj.innerHTML = '<option value="">—</option>' + projectsCache.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  updateManualPunchTacheOptions();
+}
+
+// Tâches disponibles pour le formulaire d'ajout manuel — dépend du métier de l'employé
+// sélectionné et de la restriction "Hors CCQ seulement" du projet sélectionné (parité EPD).
+function updateManualPunchTacheOptions() {
+  const tacheSel = document.getElementById('mp-tache');
+  if (!tacheSel) return;
+  const empId = document.getElementById('mp-employee').value;
+  const projId = document.getElementById('mp-project').value;
+  const emp = employeesCache.find(e => e.id === empId);
+  const proj = projectsCache.find(p => p.id === projId);
+  const jt = emp && (configCache && configCache.jobTitles || []).find(j => j.name === emp.jobTitle);
+  let taches = jt ? (tachesCache || []).filter(t => t.jobTitleId === jt.id) : [];
+  if (proj && proj.horsCcq) taches = taches.filter(t => !t.ccq);
+  tacheSel.innerHTML = '<option value="">—</option>' + taches.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join('');
+}
+document.getElementById('mp-employee').addEventListener('change', updateManualPunchTacheOptions);
+document.getElementById('mp-project').addEventListener('change', updateManualPunchTacheOptions);
+
+async function loadPunchesWeek() {
+  document.getElementById('pw-week-label').textContent = pwFmtWeekLabel(pwWeekStart);
+  document.getElementById('pw-week-next').disabled = false;
+  pwEditingPunchId = null;
+  const elWeek = document.getElementById('ptab-week');
+  elWeek.innerHTML = '<div class="empty-state">Chargement…</div>';
+  try {
+    const data = await callApi('punchesAdmin', 'listWeek', { weekStart: pwWeekStart });
+    pwPunchesCache = data.punches || [];
+    const pending = pwPunchesCache.filter(p => p.status === 'ouvert' || p.status === 'ferme').length;
+    const badge = document.getElementById('pw-pending-badge');
+    if (pending > 0) { badge.textContent = pending + ' en attente'; badge.classList.remove('hidden'); }
+    else { badge.textContent = '✔ tout traité'; badge.classList.remove('hidden'); }
+    renderPtabWeek();
+    renderPtabEmployee();
+    renderPtabProject();
+  } catch (err) {
+    elWeek.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function pwPunchTableHtml(list, opts) {
+  opts = opts || {};
+  if (!list.length) return '<div class="empty-state">Aucun poinçon.</div>';
+  return `<table><thead><tr>
+      ${opts.showEmployee ? '<th>Employé</th>' : ''}
+      ${opts.showProject ? '<th>Projet</th>' : ''}
+      <th>Date</th><th>Début</th><th>Fin</th><th>Brut</th><th>Ajusté</th><th>1.5x</th><th>2x</th><th>Prime</th><th>Statut</th><th></th>
+    </tr></thead><tbody>${list.map(p => pwPunchRowHtml(p, opts)).join('')}</tbody></table>`;
+}
+
+function pwPunchRowHtml(p, opts) {
+  const editing = pwEditingPunchId === p.id;
+  const rowsHtml = `<tr data-id="${p.id}">
+      ${opts.showEmployee ? `<td>${escapeHtml(p.employeeName || '')}</td>` : ''}
+      ${opts.showProject ? `<td>${escapeHtml(p.projectName || '—')}</td>` : ''}
+      <td>${pwFmtDate(p.clockIn)}</td>
+      <td>${pwFmtTime(p.clockIn)}</td>
+      <td>${pwFmtTime(p.clockOut)}</td>
+      <td>${p.brutH != null ? p.brutH : '—'}</td>
+      <td>${p.ajusteH != null ? p.ajusteH : '—'}</td>
+      <td>${p.overtime15 != null ? p.overtime15 : '—'}</td>
+      <td>${p.overtime2 != null ? p.overtime2 : '—'}</td>
+      <td>${p.primeApplied ? '✔' : '—'}</td>
+      <td><span class="badge ${pwStatusBadgeClass(p.status)}">${pwStatusLabel(p.status)}</span></td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn-outline btn-sm" data-pw-act="edit" data-id="${p.id}">${editing ? 'Fermer' : 'Modifier'}</button>
+        ${p.status === 'ferme' || p.status === 'auto_ferme' ? `<button class="btn-outline btn-sm" data-pw-act="approve" data-id="${p.id}">Approuver</button><button class="btn-outline btn-sm" data-pw-act="reject" data-id="${p.id}">Rejeter</button>` : ''}
+        ${(p.status === 'approuve' || p.status === 'rejete') ? `<button class="btn-outline btn-sm" data-pw-act="restore" data-id="${p.id}">Restaurer</button>` : ''}
+      </td>
+    </tr>`;
+  const editRow = editing ? `<tr><td colspan="12">${pwEditFormHtml(p)}</td></tr>` : '';
+  return rowsHtml + editRow;
+}
+
+function pwEditFormHtml(p) {
+  const projectOptions = projectsCache.map(pr => `<option value="${pr.id}" ${pr.id === p.projectId ? 'selected' : ''}>${escapeHtml(pr.name)}</option>`).join('');
+  return `
+    <div class="punch-edit-block" data-edit-id="${p.id}">
+      <label>Projet<select class="pw-edit-project">${projectOptions}</select></label>
+      <label>Début<input type="datetime-local" class="pw-edit-start" value="${isoToDatetimeLocal(p.clockIn)}"></label>
+      <label>Fin<input type="datetime-local" class="pw-edit-end" value="${isoToDatetimeLocal(p.clockOut)}"></label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-morning" ${p.breakMorning ? 'checked' : ''}> Pause matin prise</label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-lunch" ${p.breakLunch ? 'checked' : ''}> Dîner pris</label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-afternoon" ${p.breakAfternoon ? 'checked' : ''}> Pause PM prise</label>
+      <label>Temps 1.5x (h)<input type="number" step="0.25" min="0" class="pw-edit-ot15" value="${p.overtime15 != null ? p.overtime15 : ''}"></label>
+      <label>Temps 2x (h)<input type="number" step="0.25" min="0" class="pw-edit-ot2" value="${p.overtime2 != null ? p.overtime2 : ''}"></label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-prime" ${p.primeApplied ? 'checked' : ''}> Prime appliquée</label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-primary btn-sm" data-pw-save="${p.id}">Enregistrer</button>
+        <button class="btn-outline btn-sm" data-pw-cancel="${p.id}">Annuler</button>
+      </div>
+    </div>
+  `;
+}
+
+function pwWireRowButtons(container) {
+  container.querySelectorAll('[data-pw-act="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pwEditingPunchId = pwEditingPunchId === btn.dataset.id ? null : btn.dataset.id;
+      renderPtabWeek(); renderPtabEmployee(); renderPtabProject();
+    });
+  });
+  container.querySelectorAll('[data-pw-act="approve"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'approve', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon approuvé.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-act="reject"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'reject', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon rejeté.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-act="restore"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'restore', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon restauré.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => { pwEditingPunchId = null; renderPtabWeek(); renderPtabEmployee(); renderPtabProject(); });
+  });
+  container.querySelectorAll('[data-pw-save]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const block = btn.closest('.punch-edit-block');
+      const patch = {
+        projectId: block.querySelector('.pw-edit-project').value,
+        clockIn: block.querySelector('.pw-edit-start').value ? new Date(block.querySelector('.pw-edit-start').value).toISOString() : null,
+        clockOut: block.querySelector('.pw-edit-end').value ? new Date(block.querySelector('.pw-edit-end').value).toISOString() : null,
+        breakMorning: block.querySelector('.pw-edit-morning').checked,
+        breakLunch: block.querySelector('.pw-edit-lunch').checked,
+        breakAfternoon: block.querySelector('.pw-edit-afternoon').checked,
+        overtime15: block.querySelector('.pw-edit-ot15').value === '' ? null : Number(block.querySelector('.pw-edit-ot15').value),
+        overtime2: block.querySelector('.pw-edit-ot2').value === '' ? null : Number(block.querySelector('.pw-edit-ot2').value),
+        primeApplied: block.querySelector('.pw-edit-prime').checked,
+      };
+      btn.disabled = true;
+      try {
+        await callApi('punchesAdmin', 'editPunch', { id: btn.dataset.pwSave, patch });
+        pwEditingPunchId = null;
+        await loadPunchesWeek();
+        showToast('Poinçon modifié ✔');
+      } catch (err) { showToast('Erreur: ' + err.message); btn.disabled = false; }
+    });
+  });
+}
+
+function renderPtabWeek() {
+  const el = document.getElementById('ptab-week');
+  const sorted = [...pwPunchesCache].sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  el.innerHTML = pwPunchTableHtml(sorted, { showEmployee: true, showProject: true });
+  pwWireRowButtons(el);
+}
+
+function renderPtabEmployee() {
+  const el = document.getElementById('ptab-employee-content');
+  if (!pwSelectedEmployeeId) { el.innerHTML = '<div class="empty-state">Choisissez un employé.</div>'; return; }
+  const list = pwPunchesCache.filter(p => p.employeeId === pwSelectedEmployeeId).sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  el.innerHTML = pwPunchTableHtml(list, { showProject: true });
+  pwWireRowButtons(el);
+}
+
+function renderPtabProject() {
+  const el = document.getElementById('ptab-project-content');
+  if (!pwSelectedProjectId) { el.innerHTML = '<div class="empty-state">Choisissez un projet.</div>'; return; }
+  const list = pwPunchesCache.filter(p => p.projectId === pwSelectedProjectId).sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  el.innerHTML = pwPunchTableHtml(list, { showEmployee: true });
+  pwWireRowButtons(el);
+}
+
+async function runPwExport() {
+  const btn = document.getElementById('pw-export-btn');
+  const el = document.getElementById('pw-export-result');
+  btn.disabled = true;
+  el.innerHTML = '<div class="empty-state">Génération…</div>';
+  try {
+    const data = await callApi('punchesAdmin', 'exportPayroll', { weekStart: pwWeekStart });
+    const rows = data.summary || [];
+    const tableHtml = rows.length
+      ? `<table><thead><tr><th>Employé</th><th>N° employé</th><th>Heures régulières</th><th>1.5x</th><th>2x</th><th>Prime</th></tr></thead><tbody>${
+          rows.map(r => `<tr><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(r.employeeNumber || '—')}</td><td>${r.regularH}</td><td>${r.overtime15H}</td><td>${r.overtime2H}</td><td>${r.prime ? 'Oui' : 'Non'}</td></tr>`).join('')
+        }</tbody></table>`
+      : '<div class="empty-state">Aucune donnée à exporter.</div>';
+    const blobUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(data.csv || '');
+    el.innerHTML = `${tableHtml}<div style="margin-top:12px;"><a class="btn-primary" style="display:inline-block;text-decoration:none;" href="${blobUrl}" download="export-paie-${pwWeekStart}.csv">⬇ Télécharger le CSV</a></div>`;
+    await loadPunchesWeek();
+    showToast('Export généré — poinçons marqués comme exportés.');
+  } catch (err) {
+    el.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  } finally { btn.disabled = false; }
+}
+
+async function loadPwThreads() {
+  const el = document.getElementById('pw-threads-list');
+  el.innerHTML = '<div class="empty-state">Chargement…</div>';
+  try {
+    const data = await callApi('tenantMessages', 'listAll');
+    pwThreadsCache = data.threads || [];
+    const totalUnread = pwThreadsCache.reduce((s, t) => s + (t.unread || 0), 0);
+    document.getElementById('pw-messages-badge').classList.toggle('hidden', totalUnread === 0);
+    renderPwThreadsList();
+  } catch (err) {
+    el.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+function renderPwThreadsList() {
+  const el = document.getElementById('pw-threads-list');
+  if (!pwThreadsCache.length) { el.innerHTML = '<div class="empty-state">Aucun message pour l\'instant.</div>'; return; }
+  el.innerHTML = pwThreadsCache.map(t => `
+    <div class="thread-row" data-thread-emp="${t.employeeId}">
+      <div class="name">${escapeHtml(t.employeeName)} ${t.unread ? `<span class="unread-dot"></span>` : ''}</div>
+      <div class="preview">${t.lastAuthor === 'admin' ? 'Vous: ' : ''}${escapeHtml((t.lastMessage || '').slice(0, 80))}</div>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-thread-emp]').forEach(row => {
+    row.addEventListener('click', () => openPwThread(row.dataset.threadEmp));
+  });
+}
+async function openPwThread(employeeId) {
+  pwSelectedThreadEmployeeId = employeeId;
+  const el = document.getElementById('pw-thread-detail');
+  el.innerHTML = '<div class="empty-state">Chargement…</div>';
+  try {
+    const data = await callApi('tenantMessages', 'thread', { employeeId });
+    pwThreadMessagesCache = data.messages || [];
+    renderPwThread();
+    await loadPwThreads();
+  } catch (err) {
+    el.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+function renderPwThread() {
+  const el = document.getElementById('pw-thread-detail');
+  const emp = employeesCache.find(e => e.id === pwSelectedThreadEmployeeId);
+  const bubbles = pwThreadMessagesCache.map(m => {
+    const mine = m.author === 'admin';
+    const when = new Date(m.createdAt).toLocaleString('fr-CA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
+    return `<div class="msg-bubble-row ${mine ? 'mine' : ''}">
+        <div class="msg-bubble ${mine ? 'mine' : ''}">
+          <div class="msg-bubble-meta">${mine ? 'Vous' : escapeHtml((emp || {}).fullName || 'Employé')} · ${when}</div>
+          <div>${escapeHtml(m.body)}</div>
+        </div>
+      </div>`;
+  }).join('');
+  el.innerHTML = `
+    <h2>${escapeHtml((emp || {}).fullName || '')}</h2>
+    <div style="max-height:320px;overflow-y:auto;padding:6px;">${bubbles || '<div class="empty-state">Aucun message.</div>'}</div>
+    <div class="msg-reply-box">
+      <textarea id="pw-reply-text" placeholder="Écrire un message…"></textarea>
+      <button class="btn-primary" id="pw-reply-send">Envoyer</button>
+    </div>
+  `;
+  document.getElementById('pw-reply-send').addEventListener('click', async () => {
+    const txt = document.getElementById('pw-reply-text');
+    const body = txt.value.trim();
+    if (!body) return;
+    const btn = document.getElementById('pw-reply-send');
+    btn.disabled = true;
+    try {
+      await callApi('tenantMessages', 'reply', { employeeId: pwSelectedThreadEmployeeId, body });
+      const data = await callApi('tenantMessages', 'thread', { employeeId: pwSelectedThreadEmployeeId });
+      pwThreadMessagesCache = data.messages || [];
+      renderPwThread();
+    } catch (err) { showToast('Erreur: ' + err.message); }
+    finally { btn.disabled = false; }
+  });
+}
+
+document.getElementById('form-manual-punch').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const employeeId = document.getElementById('mp-employee').value;
+  const projectId = document.getElementById('mp-project').value;
+  const tache = document.getElementById('mp-tache').value;
+  const date = document.getElementById('mp-date').value;
+  const start = document.getElementById('mp-start').value;
+  const end = document.getElementById('mp-end').value;
+  if (!employeeId || !projectId || !date) { showToast('Employé, projet et date sont requis.'); return; }
+  if (!start && !end) { showToast('Au moins l\'une des deux heures (début ou fin) est requise.'); return; }
+  try {
+    await callApi('punchesAdmin', 'manualAdd', { employeeId, projectId, date, clockIn: start || undefined, clockOut: end || undefined, tache: tache || undefined });
+    e.target.reset();
+    showToast('Poinçon ajouté ✔');
+    if (punchesTabLoaded) await loadPunchesWeek();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Auth / démarrage =====================
+async function initApp() {
+  const meta = Clerk.user.publicMetadata || {};
+  if (meta.role !== 'admin' || !meta.tenantId || meta.tenantId === 'EPD') {
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Cette page est réservée aux administrateurs d\'une entreprise Exacto (hors EPD). Les comptes EPD utilisent admin.html.</div>';
+    return;
+  }
+  document.getElementById('clerk-signin').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const btnEl = document.getElementById('clerk-user-button');
+  Clerk.mountUserButton(btnEl, { appearance: { elements: { userButtonAvatarBox: { width: '28px', height: '28px' } } } });
+  try {
+    await loadConfig();
+    await loadEmployees();
+    await loadProjects();
+  } catch (err) {
+    showToast('Erreur de chargement: ' + err.message);
+  }
+}
+
+let appStarted = false;
+async function boot() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` });
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY });
+  await loadExternalScript({ src: '/clerk-fr-fr.js' });
+  await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, localization: window.CLERK_LOCALIZATION_FR });
+  window.Clerk.addListener(({ user }) => { if (user && !appStarted) { appStarted = true; initApp(); } });
+  if (window.Clerk.user) { appStarted = true; initApp(); }
+  else { window.Clerk.mountSignIn(document.getElementById('clerk-signin'), { appearance: { elements: { rootBox: { width: '100%' }, card: { width: '100%' } } } }); }
+}
+boot();
+</script>
+</body>
+</html>
