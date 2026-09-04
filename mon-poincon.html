@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Mon Poinçon</title>
+<style>
+  :root {
+    --accent: #3b63ff; --accent-dark:#2547cc; --bg:#f4f6fb; --panel:#ffffff;
+    --border:#dde4f0; --text:#0b1e3d; --text-secondary:#5b6b85; --danger:#e2445c;
+    --danger-bg:#fdecef; --green:#00c875; --green-bg:#e8faf1; --accent-bg:#e8edff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  #clerk-signin { max-width:460px; margin:60px auto; padding:0 16px; }
+  #clerk-signin input[type="text"], #clerk-signin input[type="email"], #clerk-signin input[type="password"] { width:100% !important; box-sizing:border-box !important; }
+  #access-denied { max-width:420px; margin:80px auto; padding:24px; text-align:center; }
+  #app { max-width:480px; margin:0 auto; padding:16px 16px 100px; display:none; }
+  header.topbar { display:flex; align-items:center; justify-content:space-between; padding:14px 4px; }
+  #header-brand { display:flex; align-items:center; gap:8px; }
+  header.topbar .brand { font-weight:700; font-size:18px; }
+  header.topbar .who { font-size:13px; color:var(--text-secondary); }
+  #clerk-user-button { display:flex; align-items:center; flex-shrink:0; }
+  button { font-family:inherit; cursor:pointer; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:14px; }
+  .status-banner { text-align:center; padding:10px; border-radius:10px; font-weight:600; margin-bottom:14px; font-size:14px; }
+  .status-off { background:var(--accent-bg); color:var(--accent-dark); }
+  .status-on { background:var(--green-bg); color:#0a8a52; }
+  label.field-label { display:block; font-size:13px; font-weight:600; color:var(--text-secondary); margin:14px 0 6px; }
+  select, input[type=number], input[type=text], textarea {
+    width:100%; padding:12px; border:1px solid var(--border); border-radius:10px; font-size:16px; background:#fff; color:var(--text);
+  }
+  textarea { min-height:70px; resize:vertical; font-family:inherit; }
+  .btn-main {
+    width:100%; padding:18px; border:none; border-radius:14px; font-size:18px; font-weight:700; color:#fff;
+    background:var(--accent); margin-top:6px;
+  }
+  .btn-main:disabled { opacity:.5; }
+  .btn-main.stop { background:var(--danger); }
+  .btn-secondary { width:100%; padding:12px; border:1px solid var(--border); border-radius:10px; background:#fff; color:var(--text); font-size:15px; margin-top:8px; }
+  .timer { text-align:center; font-size:42px; font-weight:800; margin:6px 0 2px; font-variant-numeric:tabular-nums; }
+  .timer-sub { text-align:center; color:var(--text-secondary); font-size:14px; margin-bottom:10px; }
+  .breaks-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+  .breaks-row:last-child { border-bottom:none; }
+  .breaks-row .lbl { font-size:15px; }
+  .switch { position:relative; width:48px; height:28px; flex:none; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; inset:0; background:#ccc; border-radius:28px; transition:.15s; }
+  .slider:before { content:""; position:absolute; height:22px; width:22px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.15s; }
+  input:checked + .slider { background:var(--green); }
+  input:checked + .slider:before { transform:translateX(20px); }
+  .hidden { display:none !important; }
+  .gps-status { font-size:12px; color:var(--text-secondary); text-align:center; margin-top:8px; }
+  .gps-status.err { color:var(--danger); }
+  .msg-panel { position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:flex-end; z-index:100; }
+  .msg-panel .sheet { background:#fff; width:100%; border-radius:16px 16px 0 0; padding:20px; }
+  .msg-panel h3 { margin:0 0 10px; }
+  .toast {
+    position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--text); color:#fff;
+    padding:10px 16px; border-radius:10px; font-size:14px; z-index:200; max-width:90%; text-align:center;
+  }
+  .summary-value { text-align:center; font-size:32px; font-weight:800; color:var(--accent-dark); }
+  .unread-badge {
+    position:absolute; top:-6px; right:-6px; background:var(--danger); color:#fff; border-radius:20px;
+    min-width:18px; height:18px; padding:0 5px; font-size:11px; font-weight:700; line-height:18px; text-align:center;
+  }
+  .msg-bubble-row { display:flex; margin-bottom:8px; }
+  .msg-bubble-row.mine { justify-content:flex-end; }
+  .msg-bubble { max-width:80%; border-radius:12px; padding:8px 10px; font-size:14px; background:#f0f1f4; }
+  .msg-bubble.mine { background:var(--accent); color:#fff; }
+  .msg-bubble-meta { font-size:10px; opacity:.7; margin-bottom:3px; }
+  .msg-reply-box { display:flex; gap:8px; align-items:flex-end; }
+  .msg-reply-box textarea { flex:1; min-height:44px; padding:8px; border:1px solid var(--border); border-radius:8px; font-size:14px; resize:vertical; }
+  .week-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:8px; }
+  .week-nav button { border:1px solid var(--border); background:#fff; border-radius:8px; padding:6px 14px; font-size:16px; flex:none; }
+  .week-nav button:disabled { opacity:.35; }
+  .week-nav span { font-size:13px; font-weight:600; color:var(--text-secondary); text-align:center; flex:1; }
+  .punch-edit-row { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); }
+  .punch-edit-row .breaks-row { padding:6px 0; }
+</style>
+</head>
+<body>
+
+<div id="desktop-blocked" class="hidden" style="max-width:420px;margin:80px auto;padding:24px;text-align:center;">
+  <p>📱 Cette page est réservée à l'usage sur téléphone mobile.</p>
+  <p style="color:var(--text-secondary);font-size:14px;">Veuillez l'ouvrir depuis le navigateur de votre téléphone.</p>
+</div>
+
+<div id="clerk-signin"></div>
+
+<div id="access-denied" class="hidden">
+  <p>⚠ Ce compte n'a pas accès à l'interface de poinçon.</p>
+  <button class="btn-secondary" id="btn-denied-signout">Se déconnecter</button>
+</div>
+
+<div id="app">
+  <header class="topbar">
+    <div id="header-brand">
+      <div>
+        <div class="brand">Mon Poinçon</div>
+        <div class="who" id="who"></div>
+      </div>
+    </div>
+    <div id="clerk-user-button"></div>
+  </header>
+
+  <div id="status-banner" class="status-banner status-off">Pas encore poinçonné aujourd'hui</div>
+
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+    <button class="btn-secondary" id="btn-open-history" style="flex:1;margin-top:0;">📜 Historique</button>
+    <button class="btn-secondary" id="btn-open-messages" style="flex:1;margin-top:0;position:relative;">💬 Mes messages<span id="messages-unread-badge" class="unread-badge hidden">0</span></button>
+  </div>
+
+  <!-- État: pas encore débuté -->
+  <div id="section-start" class="card">
+    <label class="field-label">Projet</label>
+    <select id="select-project"></select>
+    <button class="btn-main" id="btn-start">▶ Débuter mon poinçon</button>
+    <div class="gps-status" id="gps-status-start"></div>
+  </div>
+
+  <!-- État: en poste -->
+  <div id="section-active" class="card hidden">
+    <div class="timer" id="timer-display">00:00</div>
+    <div class="timer-sub" id="timer-sub"></div>
+    <button class="btn-main stop" id="btn-finish">⏹ Terminer mon poinçon</button>
+    <button class="btn-secondary" id="btn-open-switch">🔁 Changer de chantier</button>
+    <div id="switch-panel" class="hidden" style="margin-top:10px;">
+      <label class="field-label">Nouveau projet</label>
+      <select id="select-switch-project"></select>
+      <button class="btn-main" id="btn-confirm-switch">Confirmer le changement</button>
+      <button class="btn-secondary" id="btn-cancel-switch">Annuler</button>
+      <div class="gps-status" id="gps-status-switch"></div>
+    </div>
+  </div>
+
+  <!-- Formulaire de fin de poinçon -->
+  <div id="section-endform" class="card hidden">
+    <h3 style="margin-top:0;">Avant de terminer…</h3>
+    <div class="breaks-row">
+      <span class="lbl">J'ai pris ma pause du matin</span>
+      <label class="switch"><input type="checkbox" id="chk-morning" checked><span class="slider"></span></label>
+    </div>
+    <div id="row-lunch" class="breaks-row hidden">
+      <span class="lbl">J'ai pris mon dîner</span>
+      <label class="switch"><input type="checkbox" id="chk-lunch" checked><span class="slider"></span></label>
+    </div>
+    <div id="row-afternoon" class="breaks-row hidden">
+      <span class="lbl">J'ai pris ma pause de l'après-midi</span>
+      <label class="switch"><input type="checkbox" id="chk-afternoon"><span class="slider"></span></label>
+    </div>
+    <button class="btn-main" id="btn-confirm-finish">✔ Confirmer la fin de journée</button>
+    <div class="gps-status" id="gps-status-end"></div>
+  </div>
+
+  <!-- Résumé -->
+  <div id="section-summary" class="card hidden">
+    <div style="text-align:center;color:var(--text-secondary);font-size:13px;">Poinçon terminé</div>
+    <div class="summary-value" id="summary-total"></div>
+    <div style="text-align:center;color:var(--text-secondary);font-size:13px;">heures ajustées (en attente d'approbation)</div>
+    <button class="btn-secondary" id="btn-new-punch">Débuter un nouveau poinçon</button>
+  </div>
+</div>
+
+<div id="history-panel" class="msg-panel hidden">
+  <div class="sheet" style="max-height:85vh;overflow-y:auto;">
+    <h3>Historique de mes poinçons</h3>
+    <div class="week-nav">
+      <button id="btn-hist-week-prev">‹</button>
+      <span id="hist-week-label"></span>
+      <button id="btn-hist-week-next">›</button>
+    </div>
+    <div id="history-content"><div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div></div>
+    <button class="btn-secondary" id="btn-close-history">Fermer</button>
+  </div>
+</div>
+
+<div id="messages-panel" class="msg-panel hidden">
+  <div class="sheet" style="max-height:85vh;display:flex;flex-direction:column;">
+    <h3>Mes messages</h3>
+    <div id="messages-content" style="overflow-y:auto;flex:1;"><div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div></div>
+    <div class="msg-reply-box" style="margin-top:10px;">
+      <textarea id="txt-messages-reply" placeholder="Écrire un message…"></textarea>
+      <button class="btn-main" id="btn-messages-reply-send" style="width:auto;margin-top:0;padding:10px 16px;">Envoyer</button>
+    </div>
+    <button class="btn-secondary" id="btn-close-messages">Fermer</button>
+  </div>
+</div>
+
+<script>
+// ===================== Configuration =====================
+const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZXhhY3RvYXBwLmNhJA';
+
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.entries(attrs).forEach(([k, v]) => { if (k === 'src') s.src = v; else s.setAttribute(k, v); });
+    s.async = true; s.crossOrigin = 'anonymous';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function storageKey(empId) { return `poincon_tenant_${empId}`; }
+function todayDateStr() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' }); }
+
+// Renvoie { pos: {lat,lng} } en cas de succès, ou { error: 'unsupported'|'denied'|'unavailable'|'timeout' } sinon.
+function getPositionDetailed(timeoutMs) {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve({ error: 'unsupported' }); return; }
+    const to = setTimeout(() => resolve({ error: 'timeout' }), timeoutMs || 15000);
+    navigator.geolocation.getCurrentPosition(
+      pos => { clearTimeout(to); resolve({ pos: { lat: pos.coords.latitude, lng: pos.coords.longitude } }); },
+      err => {
+        clearTimeout(to);
+        const code = err && err.code;
+        resolve({ error: code === 1 ? 'denied' : (code === 3 ? 'timeout' : 'unavailable') });
+      },
+      { enableHighAccuracy: true, timeout: timeoutMs || 15000, maximumAge: 60000 }
+    );
+  });
+}
+
+function detectOS() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'other';
+}
+
+function geoErrorMessage(errorType) {
+  const os = detectOS();
+  if (errorType === 'unsupported') {
+    return "⚠ Votre navigateur ne supporte pas la localisation. Essayez avec Chrome (Android) ou Safari (iPhone).";
+  }
+  if (errorType === 'denied') {
+    if (os === 'ios') {
+      return "⚠ La localisation est bloquée pour ce site. Pour l'activer : Réglages → Confidentialité et sécurité → Service de localisation (activer), puis Réglages → Safari → Position → choisir « Demander » ou « Autoriser ».";
+    }
+    if (os === 'android') {
+      return "⚠ La localisation est bloquée pour ce site. Pour l'activer : dans Chrome, touchez les 3 points (⋮) en haut à droite → Paramètres → Paramètres des sites → Position → autoriser pour ce site. Vérifiez aussi que la localisation est activée dans les Paramètres du téléphone.";
+    }
+    return "⚠ La localisation est bloquée pour ce site. Autorisez-la dans les paramètres de votre navigateur puis réessayez.";
+  }
+  return "⚠ Impossible d'obtenir votre position. Vérifiez que le service de localisation (GPS) est activé sur votre téléphone, puis réessayez.";
+}
+
+function showGpsError(gpsElId, errorType, onRetry) {
+  const gpsEl = document.getElementById(gpsElId);
+  gpsEl.className = 'gps-status err';
+  gpsEl.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.textContent = geoErrorMessage(errorType);
+  gpsEl.appendChild(msg);
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'btn-secondary';
+  retryBtn.style.marginTop = '6px';
+  retryBtn.textContent = '🔄 Réessayer';
+  retryBtn.addEventListener('click', onRetry);
+  gpsEl.appendChild(retryBtn);
+}
+
+function showMsgError(gpsElId, message, onRetry) {
+  const gpsEl = document.getElementById(gpsElId);
+  gpsEl.className = 'gps-status err';
+  gpsEl.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.textContent = message;
+  gpsEl.appendChild(msg);
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'btn-secondary';
+  retryBtn.style.marginTop = '6px';
+  retryBtn.textContent = '🔄 Réessayer';
+  retryBtn.addEventListener('click', onRetry);
+  gpsEl.appendChild(retryBtn);
+}
+
+async function checkGpsProactively() {
+  const gpsEl = document.getElementById('gps-status-start');
+  if (!navigator.permissions || !navigator.permissions.query) return;
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    if (status.state === 'denied') {
+      showGpsError('gps-status-start', 'denied', checkGpsProactively);
+    } else {
+      gpsEl.textContent = ''; gpsEl.className = 'gps-status';
+    }
+    status.onchange = () => {
+      if (status.state === 'denied') showGpsError('gps-status-start', 'denied', checkGpsProactively);
+      else { gpsEl.textContent = ''; gpsEl.className = 'gps-status'; }
+    };
+  } catch (e) { /* Permissions API non supportée pour 'geolocation' — ignorer */ }
+}
+
+async function callApi(resource, action, body) {
+  const token = await Clerk.session.getToken();
+  const r = await fetch('/api/tenant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(Object.assign({ resource, action }, body || {}))
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error || ('Erreur ' + r.status));
+    if (data.clockDrift) err.clockDrift = true;
+    throw err;
+  }
+  return data;
+}
+
+// ===================== Semaines (Dim → Sam) =====================
+// weekStart = dimanche (YYYY-MM-DD, calendrier local) — même convention que api/tenant.js.
+function toLocalISODate(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function sundayOfWeek(d) {
+  const dt = (d instanceof Date) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : new Date(d + 'T12:00:00');
+  dt.setDate(dt.getDate() - dt.getDay());
+  return toLocalISODate(dt);
+}
+function addDaysToWeekKey(sunday, days) {
+  const dt = new Date(sunday + 'T12:00:00');
+  dt.setDate(dt.getDate() + days);
+  return toLocalISODate(dt);
+}
+function fmtWeekLabel(sunday) {
+  const start = new Date(sunday + 'T12:00:00');
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const f = d => d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+  return `Semaine du ${f(start)} au ${f(end)}`;
+}
+
+// ===================== État =====================
+let state = {
+  activeProjects: [],
+  punch: null,           // poinçon ouvert en cours { id, projectId, clockIn }
+  timerInterval: null,
+  pollInterval: null,
+  historyWeek: null,
+  historyWeeksCache: {},  // { weekStart: [punches] }
+  historyEditPunchId: null,
+  messagesCache: []
+};
+
+function loadPunchState() {
+  try {
+    const raw = localStorage.getItem(storageKey(window.__tenantEmployeeId));
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (obj.date !== todayDateStr()) { localStorage.removeItem(storageKey(window.__tenantEmployeeId)); return null; }
+    return obj;
+  } catch (e) { return null; }
+}
+function savePunchState(obj) {
+  try { localStorage.setItem(storageKey(window.__tenantEmployeeId), JSON.stringify(obj)); } catch (e) {}
+}
+function clearPunchState() {
+  try { localStorage.removeItem(storageKey(window.__tenantEmployeeId)); } catch (e) {}
+}
+
+// ===================== UI helpers =====================
+function showSection(name) {
+  ['section-start', 'section-active', 'section-endform', 'section-summary'].forEach(id => {
+    document.getElementById(id).classList.toggle('hidden', id !== name);
+  });
+}
+function setBanner(active) {
+  const el = document.getElementById('status-banner');
+  if (active) { el.textContent = '🟢 En poste'; el.className = 'status-banner status-on'; }
+  else { el.textContent = 'Pas encore poinçonné aujourd\'hui'; el.className = 'status-banner status-off'; }
+}
+
+function fillProjectSelect(sel, excludeId) {
+  sel.innerHTML = '';
+  const list = (state.activeProjects || []).filter(p => String(p.id) !== String(excludeId));
+  if (!list.length) {
+    const o = document.createElement('option'); o.value = ''; o.textContent = 'Aucun projet actif';
+    sel.appendChild(o);
+    return;
+  }
+  list.forEach(p => {
+    const o = document.createElement('option'); o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  });
+}
+
+function populateProjectSelect() {
+  fillProjectSelect(document.getElementById('select-project'), null);
+}
+
+function startTimerDisplay(clockInIso, projectName) {
+  clearInterval(state.timerInterval);
+  const startedAt = new Date(clockInIso);
+  function tick() {
+    const diffMs = Date.now() - startedAt.getTime();
+    const totalSec = Math.max(0, Math.floor(diffMs / 1000));
+    const h = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+    document.getElementById('timer-display').textContent = `${h}:${m}`;
+  }
+  tick();
+  state.timerInterval = setInterval(tick, 1000);
+  document.getElementById('timer-sub').textContent = 'Depuis ' + startedAt.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' }) + (projectName ? ' — ' + projectName : '');
+}
+
+function projectName(id) {
+  const p = (state.activeProjects || []).find(x => String(x.id) === String(id));
+  return p ? p.name : '';
+}
+
+// ===================== Chargement / démarrage =====================
+async function refreshTodayData() {
+  const projData = await callApi('punches', 'activeProjects');
+  state.activeProjects = projData.projects || [];
+  populateProjectSelect();
+
+  const todayData = await callApi('punches', 'listToday');
+  const open = (todayData.punches || []).find(p => p.status === 'ouvert');
+  if (open) {
+    state.punch = open;
+    savePunchState({ date: todayDateStr(), punchId: open.id });
+    setBanner(true);
+    showSection('section-active');
+    startTimerDisplay(open.clockIn, projectName(open.projectId));
+    startActivePunchPolling();
+  } else if (state.punch) {
+    // Le poinçon actif localement a été fermé côté serveur pendant que l'app était fermée.
+    clearInterval(state.timerInterval);
+    stopActivePunchPolling();
+    clearPunchState();
+    state.punch = null;
+    setBanner(false);
+    showSection('section-start');
+  }
+}
+
+// ===================== Détection : poinçon fermé par l'admin pendant que l'app est ouverte =====================
+function stopActivePunchPolling() {
+  if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
+}
+function startActivePunchPolling() {
+  if (state.pollInterval) return;
+  state.pollInterval = setInterval(checkAdminCompletedPunch, 45000);
+}
+async function checkAdminCompletedPunch() {
+  if (!state.punch) { stopActivePunchPolling(); return; }
+  try {
+    const data = await callApi('punches', 'listToday');
+    const mine = (data.punches || []).find(p => p.id === state.punch.id);
+    if (!mine || mine.status !== 'ouvert') {
+      clearInterval(state.timerInterval);
+      stopActivePunchPolling();
+      clearPunchState();
+      state.punch = null;
+      setBanner(false);
+      showToast('Votre poinçon a été complété par l\'administration ✔');
+      showSection('section-start');
+      checkGpsProactively();
+    }
+  } catch (e) { /* sondage silencieux : on réessaiera au prochain intervalle */ }
+}
+
+// ===================== Débuter / changer / terminer =====================
+document.getElementById('btn-start').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-start');
+  const projectId = document.getElementById('select-project').value;
+  if (!projectId) { showToast('Aucun projet actif disponible.'); return; }
+  btn.disabled = true;
+  document.getElementById('gps-status-start').className = 'gps-status';
+  document.getElementById('gps-status-start').textContent = 'Localisation en cours…';
+  const geo = await getPositionDetailed();
+  if (geo.error) { showGpsError('gps-status-start', geo.error, () => document.getElementById('btn-start').click()); btn.disabled = false; return; }
+  document.getElementById('gps-status-start').textContent = '';
+  try {
+    const data = await callApi('punches', 'start', { projectId, lat: geo.pos.lat, lng: geo.pos.lng, clientTimestamp: Date.now() });
+    state.punch = data.punch;
+    savePunchState({ date: todayDateStr(), punchId: data.punch.id });
+    setBanner(true);
+    showSection('section-active');
+    startTimerDisplay(data.punch.clockIn, projectName(data.punch.projectId));
+    startActivePunchPolling();
+    if (data.resumed) showToast('Poinçon déjà en cours repris.');
+  } catch (err) {
+    if (err.clockDrift) showMsgError('gps-status-start', err.message, () => document.getElementById('btn-start').click());
+    else showToast('Erreur: ' + err.message);
+  } finally { btn.disabled = false; }
+});
+
+document.getElementById('btn-open-switch').addEventListener('click', () => {
+  fillProjectSelect(document.getElementById('select-switch-project'), state.punch.projectId);
+  document.getElementById('switch-panel').classList.remove('hidden');
+});
+document.getElementById('btn-cancel-switch').addEventListener('click', () => {
+  document.getElementById('switch-panel').classList.add('hidden');
+});
+document.getElementById('btn-confirm-switch').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-confirm-switch');
+  const newProjectId = document.getElementById('select-switch-project').value;
+  if (!newProjectId) { showToast('Aucun autre projet actif disponible.'); return; }
+  btn.disabled = true;
+  document.getElementById('gps-status-switch').className = 'gps-status';
+  document.getElementById('gps-status-switch').textContent = 'Localisation en cours…';
+  const geo = await getPositionDetailed();
+  if (geo.error) { showGpsError('gps-status-switch', geo.error, () => document.getElementById('btn-confirm-switch').click()); btn.disabled = false; return; }
+  document.getElementById('gps-status-switch').textContent = '';
+  try {
+    const data = await callApi('punches', 'switch', { punchId: state.punch.id, newProjectId, lat: geo.pos.lat, lng: geo.pos.lng, clientTimestamp: Date.now() });
+    state.punch = data.newPunch;
+    savePunchState({ date: todayDateStr(), punchId: data.newPunch.id });
+    document.getElementById('switch-panel').classList.add('hidden');
+    startTimerDisplay(data.newPunch.clockIn, projectName(data.newPunch.projectId));
+    showToast('Changement de chantier confirmé.');
+  } catch (err) {
+    if (err.clockDrift) showMsgError('gps-status-switch', err.message, () => document.getElementById('btn-confirm-switch').click());
+    else showToast('Erreur: ' + err.message);
+  } finally { btn.disabled = false; }
+});
+
+document.getElementById('btn-finish').addEventListener('click', () => {
+  const now = new Date();
+  const finishMinutes = now.getHours() * 60 + now.getMinutes();
+  document.getElementById('row-lunch').classList.toggle('hidden', finishMinutes < 13 * 60);
+  document.getElementById('row-afternoon').classList.toggle('hidden', finishMinutes < 14 * 60);
+  showSection('section-endform');
+});
+
+document.getElementById('btn-confirm-finish').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-confirm-finish');
+  btn.disabled = true;
+  document.getElementById('gps-status-end').className = 'gps-status';
+  document.getElementById('gps-status-end').textContent = 'Localisation en cours…';
+  const geo = await getPositionDetailed();
+  if (geo.error) { showGpsError('gps-status-end', geo.error, () => document.getElementById('btn-confirm-finish').click()); btn.disabled = false; return; }
+  document.getElementById('gps-status-end').textContent = '';
+  const breakMorning = document.getElementById('chk-morning').checked;
+  const lunchRowVisible = !document.getElementById('row-lunch').classList.contains('hidden');
+  const afternoonRowVisible = !document.getElementById('row-afternoon').classList.contains('hidden');
+  const breakLunch = lunchRowVisible ? document.getElementById('chk-lunch').checked : false;
+  const breakAfternoon = afternoonRowVisible ? document.getElementById('chk-afternoon').checked : false;
+  try {
+    const data = await callApi('punches', 'finish', {
+      punchId: state.punch.id, lat: geo.pos.lat, lng: geo.pos.lng,
+      breakMorning, breakLunch, breakAfternoon, clientTimestamp: Date.now()
+    });
+    clearInterval(state.timerInterval);
+    stopActivePunchPolling();
+    clearPunchState();
+    state.punch = null;
+    setBanner(false);
+    document.getElementById('summary-total').textContent = data.ajusteH + ' h';
+    showSection('section-summary');
+  } catch (err) {
+    if (err.clockDrift) showMsgError('gps-status-end', err.message, () => document.getElementById('btn-confirm-finish').click());
+    else showToast('Erreur: ' + err.message);
+  } finally { btn.disabled = false; }
+});
+
+document.getElementById('btn-new-punch').addEventListener('click', async () => {
+  showSection('section-start');
+  checkGpsProactively();
+  try { await refreshTodayData(); } catch (e) {}
+});
+
+document.querySelectorAll('#chk-morning, #chk-lunch').forEach(chk => {
+  // Les deux cases sont indépendantes ; aucune zone de raison en V1 (voir schema.js — simplification volontaire).
+});
+
+// ===================== Historique =====================
+async function openHistory() {
+  document.getElementById('history-panel').classList.remove('hidden');
+  state.historyWeek = sundayOfWeek(new Date());
+  state.historyEditPunchId = null;
+  state.historyWeeksCache = {};
+  await loadAndRenderHistoryWeek();
+}
+async function loadAndRenderHistoryWeek() {
+  const el = document.getElementById('history-content');
+  el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div>';
+  try {
+    if (!state.historyWeeksCache[state.historyWeek]) {
+      const data = await callApi('punches', 'listHistory', { weekStart: state.historyWeek });
+      state.historyWeeksCache[state.historyWeek] = data.punches || [];
+    }
+    renderHistoryWeek();
+  } catch (err) {
+    el.innerHTML = '<div style="text-align:center;color:var(--danger);padding:20px;">Erreur: ' + err.message + '</div>';
+  }
+}
+function statusLabel(status) {
+  return { ouvert: 'En cours', ferme: 'En attente', auto_ferme: 'En attente (fermeture auto)', approuve: 'Approuvé', rejete: 'Rejeté', exporte: 'Exporté' }[status] || status;
+}
+function fmtTime(iso) {
+  if (!iso) return '…';
+  return new Date(iso).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
+}
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'America/Toronto' });
+}
+function renderHistoryWeek() {
+  const el = document.getElementById('history-content');
+  document.getElementById('hist-week-label').textContent = fmtWeekLabel(state.historyWeek);
+  document.getElementById('btn-hist-week-next').disabled = state.historyWeek === sundayOfWeek(new Date());
+
+  const punches = state.historyWeeksCache[state.historyWeek] || [];
+  if (!punches.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Aucun poinçon cette semaine-là.</div>';
+    return;
+  }
+  const dayCount = {};
+  punches.forEach(p => { const d = p.clockIn ? p.clockIn.slice(0, 10) : ''; dayCount[d] = (dayCount[d] || 0) + 1; });
+
+  el.innerHTML = punches.map(p => renderHistoryPunchRow(p, dayCount[(p.clockIn || '').slice(0, 10)] > 1)).join('');
+  wireHistoryEditButtons();
+}
+function renderHistoryPunchRow(p, multiSegmentDay) {
+  const editable = p.status === 'ferme' && p.clockOut;
+  const editing = state.historyEditPunchId === p.id;
+  const editBtn = editable ? `<button class="btn-secondary" data-hist-edit="${p.id}" style="width:auto;margin-top:0;padding:4px 10px;font-size:12px;">${editing ? 'Fermer' : '✏️ Modifier'}</button>` : '';
+  return `
+    <div style="padding:8px 0;border-top:1px solid var(--border);" data-hist-row="${p.id}">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;align-items:flex-start;">
+        <div>${fmtDate(p.clockIn)}<br><span style="color:var(--text-secondary);">${escapeHtml(p.projectName || '')}</span></div>
+        <div style="text-align:right;">${fmtTime(p.clockIn)}–${fmtTime(p.clockOut)}<br><span style="color:var(--text-secondary);">${p.ajusteH != null ? p.ajusteH + ' h ajustée' : ''} · ${statusLabel(p.status)}</span></div>
+      </div>
+      ${editBtn ? `<div style="text-align:right;margin-top:6px;">${editBtn}</div>` : ''}
+      ${editing ? renderHistoryEditForm(p, multiSegmentDay) : ''}
+    </div>
+  `;
+}
+function renderHistoryEditForm(p, multiSegmentDay) {
+  const finishMinutes = p.clockOut ? (new Date(p.clockOut).getHours() * 60 + new Date(p.clockOut).getMinutes()) : 0;
+  const lunchApplicable = finishMinutes >= 13 * 60;
+  const afternoonApplicable = finishMinutes >= 14 * 60;
+  const projectOptions = (state.activeProjects || [])
+    .map(pr => `<option value="${pr.id}" ${String(pr.id) === String(p.projectId) ? 'selected' : ''}>${escapeHtml(pr.name)}</option>`).join('');
+
+  const pauseSection = multiSegmentDay
+    ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">Journée avec changement de chantier — les pauses ne sont pas modifiables ici. Contactez l'administrateur au besoin.</div>`
+    : `
+      <div class="breaks-row">
+        <span class="lbl" style="font-size:14px;">Pause du matin prise</span>
+        <label class="switch"><input type="checkbox" class="hist-edit-morning" ${p.breakMorning ? 'checked' : ''}><span class="slider"></span></label>
+      </div>
+      ${lunchApplicable ? `
+      <div class="breaks-row">
+        <span class="lbl" style="font-size:14px;">Dîner pris</span>
+        <label class="switch"><input type="checkbox" class="hist-edit-lunch" ${p.breakLunch ? 'checked' : ''}><span class="slider"></span></label>
+      </div>` : ''}
+      ${afternoonApplicable ? `
+      <div class="breaks-row">
+        <span class="lbl" style="font-size:14px;">Pause après-midi prise</span>
+        <label class="switch"><input type="checkbox" class="hist-edit-afternoon" ${p.breakAfternoon ? 'checked' : ''}><span class="slider"></span></label>
+      </div>` : ''}
+    `;
+
+  return `
+    <div class="punch-edit-row">
+      <label class="field-label" style="margin-top:0;">Chantier</label>
+      <select class="hist-edit-project">${projectOptions}</select>
+      ${pauseSection}
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn-main" data-hist-save="${p.id}" data-multi="${multiSegmentDay ? '1' : '0'}" style="margin-top:0;padding:10px;">Enregistrer</button>
+        <button class="btn-secondary" data-hist-cancel="${p.id}" style="margin-top:0;padding:10px;">Annuler</button>
+      </div>
+    </div>
+  `;
+}
+function wireHistoryEditButtons() {
+  document.querySelectorAll('[data-hist-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-hist-edit');
+      state.historyEditPunchId = (state.historyEditPunchId === id) ? null : id;
+      renderHistoryWeek();
+    });
+  });
+  document.querySelectorAll('[data-hist-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => { state.historyEditPunchId = null; renderHistoryWeek(); });
+  });
+  document.querySelectorAll('[data-hist-save]').forEach(btn => {
+    btn.addEventListener('click', () => handleHistorySave(btn));
+  });
+}
+async function handleHistorySave(btn) {
+  const punchId = btn.getAttribute('data-hist-save');
+  const multi = btn.getAttribute('data-multi') === '1';
+  const row = btn.closest('.punch-edit-row');
+  const projectId = row.querySelector('.hist-edit-project').value;
+  const payload = { punchId, projectId };
+  if (!multi) {
+    const morningChk = row.querySelector('.hist-edit-morning');
+    const lunchChk = row.querySelector('.hist-edit-lunch');
+    const afternoonChk = row.querySelector('.hist-edit-afternoon');
+    if (morningChk) payload.breakMorning = morningChk.checked;
+    if (lunchChk) payload.breakLunch = lunchChk.checked;
+    if (afternoonChk) payload.breakAfternoon = afternoonChk.checked;
+  }
+  btn.disabled = true;
+  try {
+    await callApi('punches', 'editPending', payload);
+    state.historyEditPunchId = null;
+    delete state.historyWeeksCache[state.historyWeek];
+    await loadAndRenderHistoryWeek();
+    showToast('Poinçon modifié ✔');
+  } catch (err) {
+    showToast('Erreur: ' + err.message);
+    btn.disabled = false;
+  }
+}
+document.getElementById('btn-open-history').addEventListener('click', openHistory);
+document.getElementById('btn-close-history').addEventListener('click', () => document.getElementById('history-panel').classList.add('hidden'));
+document.getElementById('btn-hist-week-prev').addEventListener('click', async () => {
+  state.historyWeek = addDaysToWeekKey(state.historyWeek, -7);
+  await loadAndRenderHistoryWeek();
+});
+document.getElementById('btn-hist-week-next').addEventListener('click', async () => {
+  state.historyWeek = addDaysToWeekKey(state.historyWeek, 7);
+  await loadAndRenderHistoryWeek();
+});
+
+// ===================== Messages =====================
+async function refreshMessagesBadge() {
+  try {
+    const data = await callApi('tenantMessages', 'list');
+    state.messagesCache = data.messages || [];
+    const count = state.messagesCache.filter(m => m.author === 'admin' && !m.readByEmployee).length;
+    const badge = document.getElementById('messages-unread-badge');
+    if (count > 0) { badge.textContent = count > 9 ? '9+' : String(count); badge.classList.remove('hidden'); }
+    else { badge.classList.add('hidden'); }
+  } catch (err) { /* silencieux */ }
+}
+async function openMessages() {
+  document.getElementById('messages-panel').classList.remove('hidden');
+  const el = document.getElementById('messages-content');
+  el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div>';
+  try {
+    const data = await callApi('tenantMessages', 'list');
+    state.messagesCache = data.messages || [];
+    renderMessages();
+    await callApi('tenantMessages', 'markRead');
+    refreshMessagesBadge();
+  } catch (err) {
+    el.innerHTML = '<div style="text-align:center;color:var(--danger);padding:20px;">Erreur: ' + err.message + '</div>';
+  }
+}
+function renderMessages() {
+  const el = document.getElementById('messages-content');
+  if (!state.messagesCache.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Aucun message pour l\'instant.</div>';
+    return;
+  }
+  el.innerHTML = state.messagesCache.map(m => {
+    const mine = m.author === 'employee';
+    const when = new Date(m.createdAt).toLocaleString('fr-CA', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone: 'America/Toronto' });
+    return `<div class="msg-bubble-row ${mine ? 'mine' : ''}">
+      <div class="msg-bubble ${mine ? 'mine' : ''}">
+        <div class="msg-bubble-meta">${mine ? 'Moi' : 'Administration'} · ${when}</div>
+        <div>${escapeHtml(m.body)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+document.getElementById('btn-open-messages').addEventListener('click', openMessages);
+document.getElementById('btn-close-messages').addEventListener('click', () => document.getElementById('messages-panel').classList.add('hidden'));
+document.getElementById('btn-messages-reply-send').addEventListener('click', async () => {
+  const txt = document.getElementById('txt-messages-reply');
+  const body = txt.value.trim();
+  if (!body) return;
+  const btn = document.getElementById('btn-messages-reply-send');
+  btn.disabled = true;
+  try {
+    await callApi('tenantMessages', 'send', { body });
+    txt.value = '';
+    const data = await callApi('tenantMessages', 'list');
+    state.messagesCache = data.messages || [];
+    renderMessages();
+  } catch (err) {
+    showToast('Erreur: ' + err.message);
+  } finally { btn.disabled = false; }
+});
+
+// ===================== Auth / démarrage =====================
+async function initApp() {
+  const meta = Clerk.user.publicMetadata || {};
+  if (meta.role !== 'employee' || !meta.tenantId || meta.tenantId === 'EPD' || !meta.employeeItemId) {
+    document.getElementById('access-denied').classList.remove('hidden');
+    document.getElementById('btn-denied-signout').addEventListener('click', () => Clerk.signOut());
+    return;
+  }
+  window.__tenantEmployeeId = meta.employeeItemId;
+  document.getElementById('clerk-signin').classList.add('hidden');
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('who').textContent = meta.employeeName || '';
+  const btnEl = document.getElementById('clerk-user-button');
+  Clerk.mountUserButton(btnEl, { appearance: { elements: { userButtonAvatarBox: { width: '28px', height: '28px' } } } });
+
+  if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    checkGpsProactively();
+  }
+
+  try {
+    await refreshTodayData();
+    await refreshMessagesBadge();
+  } catch (err) {
+    showToast('Erreur de chargement: ' + err.message);
+  }
+}
+
+let appStarted = false;
+async function boot() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` });
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY });
+  await loadExternalScript({ src: '/clerk-fr-fr.js' });
+  await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, localization: window.CLERK_LOCALIZATION_FR });
+  window.Clerk.addListener(({ user }) => { if (user && !appStarted) { appStarted = true; initApp(); } });
+  if (window.Clerk.user) { appStarted = true; initApp(); }
+  else { window.Clerk.mountSignIn(document.getElementById('clerk-signin'), { appearance: { elements: { rootBox: { width: '100%' }, card: { width: '100%' } } } }); }
+}
+boot();
+</script>
+</body>
+</html>
