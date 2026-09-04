@@ -29,16 +29,16 @@
 //     action: createPrime       { name, percentage, code }
 //     action: updatePrime       { id, name, percentage, code }
 //     action: deletePrime       { id }
-
+ 
 const { eq, and } = require('drizzle-orm');
 const { getDb, schema } = require('./_db/client');
 const { requireTenantContext } = require('./_lib/tenant-context');
-
+ 
 const VALID_PROJECT_STATUSES = ['en_planification', 'en_cours', 'termine'];
-
+ 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Méthode non autorisée' }); return; }
-
+ 
   let ctx;
   try {
     ctx = await requireTenantContext(req);
@@ -50,11 +50,11 @@ module.exports = async function handler(req, res) {
     res.status(403).json({ error: 'Accès réservé aux administrateurs de votre entreprise.' });
     return;
   }
-
+ 
   const db = getDb();
   const { resource, action } = req.body || {};
   const tenantId = ctx.tenantId;
-
+ 
   try {
     // ===================== Employés =====================
     if (resource === 'employees') {
@@ -99,7 +99,7 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: 'Action inconnue.' });
       return;
     }
-
+ 
     // ===================== Projets =====================
     if (resource === 'projects') {
       if (action === 'list') {
@@ -157,7 +157,7 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: 'Action inconnue.' });
       return;
     }
-
+ 
     // ===================== Configuration =====================
     if (resource === 'config') {
       if (action === 'get') {
@@ -233,7 +233,7 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: 'Action inconnue.' });
       return;
     }
-
+ 
     res.status(400).json({ error: 'Resource inconnue.' });
   } catch (err) {
     res.status(502).json({ error: 'Erreur: ' + (err.message || String(err)) });
