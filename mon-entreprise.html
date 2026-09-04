@@ -1,0 +1,2552 @@
+<!DOCTYPE html>
+<!--
+  mon-entreprise.html — Portail Admin pour les tenants Postgres (non-EPD).
+
+  Séparé d'admin.html/planif.html/punch.html — ne les modifie pas, ne les importe pas. Réservé aux
+  comptes Clerk avec role === 'admin' ET un tenantId défini différent de 'EPD'. Un compte EPD qui
+  arrive ici est redirigé avec un message clair (EPD utilise admin.html/planif.html/punch.html).
+
+  Onglets : Configuration (Métiers, Primes, Logiciel de paie), Employés, Projets, et
+  Planification (visible seulement si le superuser a coché "Accès Planification" pour ce tenant —
+  actuellement un espace réservé, le vrai module de planification est un chantier futur distinct).
+-->
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exacto — Mon entreprise</title>
+<script>
+  // Applique le thème AVANT le premier rendu (évite un flash du mauvais thème) — clair/sombre,
+  // mémorisé par navigateur (localStorage), défaut = clair (même patron qu'admin.html côté EPD).
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('exactoTheme_monEntreprise'); } catch (e) {}
+    document.documentElement.setAttribute('data-theme', saved === 'light' || saved === 'dark' ? saved : 'light');
+  })();
+</script>
+<style>
+  :root {
+    /* Entête toujours claire (voir header.topbar plus bas) — indépendante du thème, pour que
+       le logo Exacto (tracé marine + bleu sur fond transparent) reste lisible dans les deux cas. */
+    --header-bg:#ffffff; --header-text:#0b1e3d; --header-border:#dde4f0;
+  }
+  html[data-theme="light"] {
+    color-scheme: light;
+    --accent:#3b63ff; --accent-dark:#2547cc; --accent-bg:#e8edff;
+    --bg:#f4f6fb; --panel:#ffffff; --panel-alt:#eef2fa; --border:#dde4f0;
+    --text:#0b1e3d; --text-secondary:#5b6b85;
+    --danger:#e2445c; --danger-bg:#fdecef; --ok:#00c875; --ok-bg:#e8faf1;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --accent:#5b82ff; --accent-dark:#a9bdff; --accent-bg:#16264a;
+    --bg:#0d1b30; --panel:#142a4a; --panel-alt:#1b3255; --border:#2a4066;
+    --text:#eaf0fb; --text-secondary:#9db0d1;
+    --danger:#ff5470; --danger-bg:#3e222b; --ok:#2fd88a; --ok-bg:#12332a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  header.topbar { display:flex; align-items:center; justify-content:space-between; padding:10px 20px; background:var(--header-bg); border-bottom:1px solid var(--header-border); color:var(--header-text); }
+  #header-brand { display:flex; align-items:center; gap:10px; }
+  #header-logo { height:40px; width:auto; display:block; }
+  header.topbar .brand { font-weight:700; font-size:17px; color:var(--header-text); }
+  #clerk-account { display:flex; align-items:center; gap:6px; flex-shrink:0; line-height:1; }
+  #clerk-user-name { font-size:12px; color:var(--header-text); opacity:.7; font-weight:600; white-space:nowrap; }
+  #clerk-user-button { display:flex; align-items:center; flex-shrink:0; }
+  #theme-toggle { border:1px solid var(--header-border); background:#fff; color:var(--header-text); border-radius:8px; width:30px; height:30px; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  #theme-toggle:hover { background:#f2f5fb; }
+  #credit-line { display:flex; align-items:center; justify-content:flex-end; gap:5px; padding:2px 12px 0; background:var(--panel); font-size:9px; color:var(--text-secondary); white-space:nowrap; }
+  @media (max-width:768px) { #credit-line { display:none; } }
+  nav.tabs { display:flex; gap:4px; padding:10px 20px 0; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  nav.tabs button { border:none; background:none; padding:10px 14px; font-size:14px; font-weight:600; color:var(--text-secondary); cursor:pointer; border-bottom:3px solid transparent; }
+  nav.tabs button.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  main { max-width:1200px; margin:0 auto; padding:20px; }
+  /* Le Tableau de bord (carte + listes) profite de toute la largeur de l'écran — les autres
+     onglets (tableaux) restent à une largeur lisible de 1200px (parité admin.html). */
+  main:has(#tab-dashboard.active) { max-width:none; }
+  .weeknav { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .weeknav button.btn-outline { padding:8px 12px; }
+  .weeknav .weeklabel { font-weight:700; }
+  /* ----- Mode "lecture seule" (rôle tenant lecture-seule — Gestion des accès) : masque les
+     onglets et actions d'édition, garde la consultation (Tableau de bord, Vue de la semaine/
+     employé/projet) et les exports (PDF, Export paie) — parité admin.html côté EPD. */
+  body.role-readonly nav.tabs button[data-tab="comptes"],
+  body.role-readonly nav.tabs button[data-tab="projects"],
+  body.role-readonly nav.tabs button[data-tab="config"],
+  body.role-readonly nav.tabs button[data-tab="acces"],
+  body.role-readonly .btn-approve,
+  body.role-readonly .btn-reject,
+  body.role-readonly .btn-restore,
+  body.role-readonly [data-act],
+  body.role-readonly [data-pw-act="edit"],
+  body.role-readonly [data-pw-act="approve"],
+  body.role-readonly [data-pw-act="reject"],
+  body.role-readonly [data-pw-act="restore"],
+  body.role-readonly .btn-msg-send-new,
+  body.role-readonly .msg-compose,
+  body.role-readonly #form-manual-punch { display:none !important; }
+  body.role-readonly input:disabled, body.role-readonly select:disabled { opacity:.65; cursor:not-allowed; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  .card .sub { font-size:12px; color:var(--text-secondary); margin:-6px 0 12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:7px 9px; border-bottom:1px solid var(--border); font-size:13px; text-align:left; }
+  th { background:var(--panel-alt); color:var(--text-secondary); font-weight:600; }
+  form.inline-form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+  form.inline-form label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary); }
+  input[type=text], input[type=email], input[type=tel], input[type=date], input[type=time], input[type=datetime-local], input[type=number], select, textarea {
+    padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--panel); color:var(--text); min-width:130px; font-family:inherit;
+  }
+  .checkline { display:flex; align-items:center; gap:6px; font-size:13px; }
+  .ptab-btn { border:none; background:none; padding:8px 12px; font-size:12.5px; font-weight:600; color:var(--text-secondary); cursor:pointer; border-bottom:3px solid transparent; position:relative; }
+  .ptab-btn.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  .unread-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--danger); margin-left:5px; vertical-align:middle; }
+  .msg-bubble-row { display:flex; margin-bottom:8px; }
+  .msg-bubble-row.mine { justify-content:flex-end; }
+  .msg-bubble { max-width:70%; border-radius:10px; padding:7px 10px; font-size:13px; background:var(--panel-alt); }
+  .msg-bubble.mine { background:var(--accent); color:#fff; }
+  .msg-bubble-meta { font-size:10px; opacity:.7; margin-bottom:3px; }
+  .msg-reply-box { display:flex; gap:8px; align-items:flex-end; margin-top:10px; }
+  .msg-reply-box textarea { flex:1; min-height:44px; resize:vertical; }
+  .thread-row { padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+  .thread-row:hover { background:var(--panel-alt); }
+  .thread-row .name { font-weight:600; font-size:13px; }
+  .thread-row .preview { font-size:12px; color:var(--text-secondary); margin-top:2px; }
+  .punch-edit-block { margin-top:8px; padding:10px; border-top:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .punch-edit-block label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary); }
+  button { border:none; border-radius:7px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-outline { background:var(--panel); border:1px solid var(--border); color:var(--text); }
+  .btn-sm { padding:4px 8px; font-size:11px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge-planification { background:var(--accent-bg); color:var(--accent-dark); }
+  .badge-en_cours { background:var(--ok-bg); color:var(--ok); }
+  .badge-termine { background:var(--panel-alt); color:var(--text-secondary); }
+  .empty-state { color:var(--text-secondary); padding:20px; text-align:center; font-size:13px; }
+  .address-suggestions { position:absolute; top:100%; left:0; right:0; z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:8px; margin-top:2px; max-height:220px; overflow-y:auto; box-shadow:0 6px 20px rgba(0,0,0,.12); }
+  .address-suggestions .addr-opt { padding:8px 10px; font-size:12.5px; cursor:pointer; border-bottom:1px solid var(--border); }
+  .address-suggestions .addr-opt:last-child { border-bottom:none; }
+  .address-suggestions .addr-opt:hover { background:var(--panel-alt); }
+  .address-suggestions .addr-empty { padding:8px 10px; font-size:12px; color:var(--text-secondary); }
+  #proj-address.addr-valid { border-color:var(--ok); }
+  #proj-address.addr-pending { border-color:var(--danger); }
+  .info-line { font-size:12px; color:var(--text-secondary); margin-bottom:10px; }
+  .section-title { font-size:13px; font-weight:700; margin:18px 0 8px; }
+  table.summary-table tbody tr.subrow-tache td { color:var(--text-secondary); font-size:12px; padding-left:16px; }
+  table.summary-table tfoot tr.subtotal-tache td { color:var(--text-secondary); font-size:12px; font-style:italic; border-top:1px dashed var(--border); }
+  table.summary-table tfoot tr.grand-total td { border-top:2px solid var(--border); font-weight:700; }
+  .progress-note { display:flex; gap:14px; align-items:center; font-size:12.5px; margin:10px 0; flex-wrap:wrap; }
+  tr.day-sep td { background:var(--panel-alt); border-bottom:1px solid var(--border); padding:8px 9px; }
+  .day-sep-inner { display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-size:12.5px; }
+  .day-sep-pauses { display:flex; gap:12px; flex-wrap:wrap; color:var(--text-secondary); }
+  .day-sep-pauses label { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+  .day-sep-total { margin-left:auto; color:var(--text-secondary); }
+  .geo-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-left:4px; flex:none; }
+  .geo-dot-ok { background:var(--ok); }
+  .geo-dot-bad { background:var(--danger); animation:geo-blink 1.2s infinite; }
+  @keyframes geo-blink { 0%,100% { opacity:1; } 50% { opacity:.25; } }
+  .gps-link { font-size:10.5px; color:var(--accent-dark); text-decoration:none; margin-right:4px; }
+  .warning-banner { background:var(--danger-bg); color:var(--danger); border-radius:8px; padding:10px 14px; font-size:12.5px; margin-bottom:12px; }
+  .missing-code-warning { color:var(--danger); font-size:11px; margin-top:2px; }
+  .pw-view-header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .map-card { margin-top:16px; }
+  #employee-map, #project-map { height:320px; border-radius:8px; margin-top:8px; }
+  .map-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--text-secondary); margin:4px 0 0; }
+  .map-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; }
+  .avantage-download { margin-top:10px; }
+  .warning-list { list-style:disc; margin:6px 0 0 18px; padding:0; font-size:12px; }
+  /* ----- Tableau de bord ----- */
+  .dashboard-grid { display:grid; grid-template-columns:1fr 1.3fr; gap:10px; align-items:start; }
+  .dashboard-lists { display:flex; flex-direction:column; gap:8px; }
+  .dashboard-lists .card { padding:8px 10px; margin-bottom:0; }
+  .dashboard-lists .card h4 { margin:0 0 4px; font-size:12px; }
+  .dashboard-lists .card-body { max-height:220px; overflow-y:auto; }
+  .dash-emp-row { display:flex; align-items:center; justify-content:space-between; padding:3px 0; border-bottom:1px solid var(--border); font-size:12px; line-height:1.25; }
+  .dash-emp-row:last-child { border-bottom:none; }
+  .dash-emp-row .proj { color:var(--text-secondary); font-size:11px; }
+  .dashboard-map-card { padding:8px 10px; margin-bottom:0; }
+  .dashboard-map-card h4 { margin:0 0 4px; font-size:12px; }
+  #dashboard-map { height:340px; border-radius:8px; border:1px solid var(--border); }
+  #dash-map-search { width:100%; margin-bottom:6px; }
+  .dashboard-lists .empty-state, .dashboard-map-card .empty-state { padding:8px; font-size:12px; }
+  @media (max-width:900px) { .dashboard-grid { grid-template-columns:1fr; } }
+  .rejected-details { margin-top:16px; }
+  .rejected-details summary { cursor:pointer; font-weight:700; font-size:13px; color:var(--text-secondary); }
+  .msg-thread { max-height:320px; overflow-y:auto; padding:6px; border:1px solid var(--border); border-radius:8px; margin-top:8px; }
+  .msg-bubble.admin { background:var(--accent); color:#fff; }
+  .msg-bubble.emp { background:var(--panel-alt); }
+  .msg-compose { display:flex; gap:8px; align-items:flex-end; margin-top:10px; }
+  .msg-compose textarea { flex:1; min-height:44px; resize:vertical; }
+  .toast { position:fixed; bottom:20px; right:20px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 16px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.15); z-index:999; }
+  .hidden { display:none !important; }
+  #clerk-signin { max-width:460px; margin:60px auto; }
+  #clerk-signin input[type="text"], #clerk-signin input[type="email"], #clerk-signin input[type="password"] { width:100% !important; box-sizing:border-box !important; }
+  .placeholder-box { padding:40px; text-align:center; color:var(--text-secondary); font-size:13px; }
+</style>
+</head>
+<body>
+
+<div id="clerk-signin"></div>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div id="header-brand">
+      <img id="header-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAjwAAAB4CAYAAAD2WSjJAABQ50lEQVR4nO2deXxU1fmHn/fcmSTsoOIKAfcFt5YqJpNAXFpra/fGWhWFJFLXtnb51W6Wtnbfa92QBNSqtVS0q61rgCyipWortYsLoLhXkTXJzD3v7497JwTIMsuZbN7n84kgmfveMzPnnvM973nP+0JERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERETEwCAD3YCIiIiIiIhCM32e7jHC8mGxaF+vtYIRw/rYf/lzY6Ok+qN9EYUnNtANiIiIiIiIKDQjfSokzvXW7/u1ngd+ktZNh/AAjUSCZ5gQCZ6IiIiIiGGPL0zzLKjt+7Ua7H1EQmeYYQa6AREREREREQXHcuRANyFiYIkET0RERETEMEdF4MCBbkXEwBIJnoiIiIiIYc3MuUxC2Ev7DFeOGM5EgiciIiIiYljje+wHkeB5qxMJnoiIiIiI4Y2l1MQo7vtAesRwJhI8ERERERHDGjUcMdBtiBh4IsETERERETGsEeXIyLsTEQmeiIiIiIhhS3W1esBhUfxOxFsr8eB+J++OlzoJGI9Yt91fxMOap1nXeJ9TuxERERERObN+LJNEmTjQ7YgYeN46gmdq1WFo6pfA9KCEmGvnloDoG0ytKmdN478cG4+IiIiIyAXlUIQJkYcn4q0heKZWHYbqUsQcHuQVL0TPN0DqMUz8xQIYj4iIiIjIAWMoF0M8kxpaEcOb4R/DU5qYhupd28VOARADpJYj5iyeue/NwtwkIiIiIiIbKufqRFXOibw7EZCrh2dK5T6oqQZGofJ7nmt8wm2zHFFaeQQiSxFzSEHFjvoPYuIf59n7Xy7MTQaeadVaVDKBESUpRqnHnuIzwRjGWkuxGoqMYoGkha1GeVPhVaO87o1g28RX2bZkiUTrq4ismTZfi0peYETxNoolzgSBiWoYa5QiqxSpUAwkPSGlSruFN31hg4nxv+I2trRvob11iWwb6PcxGJg+T+OxLYzwDCVejD2sx+7WZ1zMo0SVIgueKO0CSV/Y6AkbjM8rRtkEtDUulraBfg/ZMK1ai9TjeyIcWKjhfzhQ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ERERERERERERERERERERERERERERERERERERERERERERERERERERERERERExaPh/hUgy2aHNa0cAAAAASUVORK5CYII=" alt="Exacto" />
+      <div class="brand">Exacto-Punch — Administration</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button id="theme-toggle" title="Changer de thème (clair/sombre)"></button>
+      <div id="clerk-account">
+        <span id="clerk-user-name"></span>
+        <div id="clerk-user-button"></div>
+      </div>
+    </div>
+  </header>
+  <div id="credit-line">Créé par Mayo</div>
+
+  <nav class="tabs">
+    <button data-tab="dashboard" class="active">Tableau de bord</button>
+    <button data-tab="semaine">Vue de la semaine</button>
+    <button data-tab="parempl">Vue par employé</button>
+    <button data-tab="parprojet">Vue par projet</button>
+    <button data-tab="comptes">Comptes employés</button>
+    <button data-tab="projects">Projets</button>
+    <button data-tab="export">Export paie</button>
+    <button data-tab="planif" id="tab-planif-btn" class="hidden">Planification</button>
+    <button data-tab="config" style="margin-left:auto;">Configuration</button>
+    <button data-tab="acces">Gestion des accès</button>
+  </nav>
+
+  <main>
+    <div id="tab-dashboard">
+      <div class="weeknav" style="margin-bottom:8px;">
+        <span class="weeklabel" id="dash-label" style="font-size:13px;"></span>
+        <button class="btn-outline btn-sm" id="dash-refresh" style="margin-left:auto;">↻ Rafraîchir</button>
+      </div>
+      <div id="dashboard-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div id="tab-semaine" class="hidden">
+      <div class="weeknav">
+        <button class="btn-outline btn-sm" id="wk-prev3">◀</button>
+        <span class="weeklabel" id="wk-label3"></span>
+        <button class="btn-outline btn-sm" id="wk-next3">▶</button>
+        <span id="pw-pending-badge" class="badge badge-termine hidden"></span>
+        <input type="text" id="pw-week-search" placeholder="🔎 Rechercher un employé ou un projet…" style="margin-left:auto;width:260px;">
+        <button class="btn-outline btn-sm" id="wk-refresh3">↻ Rafraîchir</button>
+      </div>
+      <div class="card">
+        <div id="ptab-week-table"><div class="empty-state">Chargement…</div></div>
+      </div>
+      <div class="card">
+        <h2>Ajouter un poinçon manuellement</h2>
+        <form id="form-manual-punch" class="inline-form">
+          <label>Employé
+            <select id="mp-employee" required><option value="">—</option></select>
+          </label>
+          <label>Projet
+            <select id="mp-project" required><option value="">—</option></select>
+          </label>
+          <label>Tâche (optionnel)
+            <select id="mp-tache"><option value="">—</option></select>
+          </label>
+          <label>Date<input type="date" id="mp-date" required></label>
+          <label>Début (optionnel)<input type="time" id="mp-start"></label>
+          <label>Fin (optionnel)<input type="time" id="mp-end"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-parempl" class="hidden">
+      <div class="weeknav">
+        <button class="btn-outline btn-sm" id="wk-prev">◀</button>
+        <span class="weeklabel" id="wk-label"></span>
+        <button class="btn-outline btn-sm" id="wk-next">▶</button>
+        <input type="text" id="pw-employee-search" placeholder="🔎 Rechercher un employé…" style="margin-left:auto;width:260px;">
+        <button class="btn-outline btn-sm" id="wk-refresh">↻ Rafraîchir</button>
+      </div>
+      <div class="pw-view-header">
+        <label style="flex:1;min-width:220px;">Employé
+          <select id="pw-employee-select"><option value="">— Choisir —</option></select>
+        </label>
+        <button class="btn-outline btn-sm" id="pw-employee-export-btn" disabled>⬇ Export PDF</button>
+      </div>
+      <div id="ptab-employee-content" style="margin-top:12px;"></div>
+      <div class="card map-card" id="employee-map-card" style="display:none;">
+        <h2>Carte des poinçons</h2>
+        <div class="map-legend">
+          <span><span class="dot" style="background:#00c875;"></span>Dans la zone du chantier</span>
+          <span><span class="dot" style="background:#df2f4a;"></span>Hors zone</span>
+          <span><span class="dot" style="background:#8b8f9c;"></span>Non validable (relevé/adresse manquant)</span>
+        </div>
+        <div id="employee-map"></div>
+      </div>
+    </div>
+
+    <div id="tab-parprojet" class="hidden">
+      <div class="weeknav">
+        <button class="btn-outline btn-sm" id="wk-prev2">◀</button>
+        <span class="weeklabel" id="wk-label2"></span>
+        <button class="btn-outline btn-sm" id="wk-next2">▶</button>
+        <input type="text" id="pw-project-search" placeholder="🔎 Rechercher un projet…" style="margin-left:auto;width:260px;">
+        <button class="btn-outline btn-sm" id="wk-refresh2">↻ Rafraîchir</button>
+      </div>
+      <div class="pw-view-header">
+        <label style="flex:1;min-width:220px;">Projet
+          <select id="pw-project-select"><option value="">— Choisir —</option></select>
+        </label>
+        <button class="btn-outline btn-sm" id="pw-project-export-btn" disabled>⬇ Export PDF</button>
+      </div>
+      <div id="ptab-project-content" style="margin-top:12px;"></div>
+      <div class="card map-card" id="project-map-card" style="display:none;">
+        <h2>Carte des poinçons</h2>
+        <div class="map-legend">
+          <span><span class="dot" style="background:#00c875;"></span>Dans la zone du chantier</span>
+          <span><span class="dot" style="background:#df2f4a;"></span>Hors zone</span>
+          <span><span class="dot" style="background:#8b8f9c;"></span>Non validable (relevé/adresse manquant)</span>
+        </div>
+        <div id="project-map"></div>
+      </div>
+    </div>
+
+    <div id="tab-export" class="hidden">
+      <div class="card">
+        <p class="sub">Génère un résumé de paie (heures régulières, 1.5x, 2x, prime) pour la semaine sélectionnée dans les autres onglets. Bloqué s'il reste des poinçons en attente (non approuvés/rejetés).</p>
+        <button class="btn-primary" id="pw-export-btn">Générer l'export</button>
+        <div id="pw-export-result" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <div id="tab-config" class="hidden">
+      <div class="card">
+        <h2>Réglages de plateforme</h2>
+        <p class="sub">Contrôlés par Exacto — informatifs seulement.</p>
+        <div class="info-line" id="config-readonly-flags">Chargement…</div>
+      </div>
+
+      <div class="card">
+        <h2>Générale</h2>
+        <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+          <div style="flex:1; min-width:240px; display:flex; flex-direction:column; gap:10px;">
+            <label>Nom de l'entreprise<input type="text" id="cfg-company-name" placeholder="Ex. Entreprises XYZ inc."></label>
+            <label style="position:relative;">Adresse de l'entreprise<input type="text" id="cfg-company-address" placeholder="Ex. 1234 rue Principale, Ville"></label>
+            <label>Code entreprise dans Avantage<input type="text" id="cfg-company-code-avantage" placeholder="Optionnel"></label>
+            <button type="button" class="btn-primary btn-sm" id="cfg-save-general" style="align-self:flex-start;">Enregistrer</button>
+          </div>
+          <div style="min-width:200px;">
+            <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:6px;">Logo de l'entreprise</label>
+            <div style="margin-bottom:8px;">
+              <img id="cfg-logo-preview" src="" alt="Logo" class="hidden" style="max-width:200px; max-height:100px; display:block; border:1px solid var(--border); border-radius:6px; background:#fff; padding:4px;">
+            </div>
+            <input type="file" id="cfg-logo-file" accept="image/*">
+            <button type="button" class="btn-outline btn-sm" id="cfg-logo-remove" style="margin-top:8px; display:block;">Retirer le logo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Métiers &amp; Tâches</h2>
+        <p class="sub">Chaque tâche détermine si le temps supplémentaire (1.5x/2x, CCQ) est applicable et le code Avantage utilisé à l'export de paie.</p>
+        <div id="job-titles-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-jobtitle" class="inline-form">
+          <label>Nom du métier<input type="text" id="jt-name" required placeholder="Ex. Menuisier"></label>
+          <button type="submit" class="btn-primary">Ajouter un métier</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Primes</h2>
+        <label class="checkline" style="margin-bottom:12px;">
+          <input type="checkbox" id="cfg-primes-enabled"> Gestion de primes applicables
+        </label>
+        <div id="primes-list"></div>
+        <form id="form-add-prime" class="inline-form">
+          <label>Nom<input type="text" id="pr-name" required placeholder="Ex. Temps et demi"></label>
+          <label>Pourcentage<input type="text" id="pr-percentage" placeholder="Ex. 50"></label>
+          <label>Code Avantage<input type="text" id="pr-code" placeholder="Optionnel"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Logiciel de paie</h2>
+        <select id="cfg-payroll">
+          <option value="">— Aucun —</option>
+          <option value="avantage">Export Avantage</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="tab-comptes" class="hidden">
+      <div class="card">
+        <h2>Comptes employés</h2>
+        <div id="employees-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-employee" class="inline-form">
+          <label>Nom complet<input type="text" id="emp-name" required></label>
+          <label>Téléphone<input type="tel" id="emp-phone"></label>
+          <label>Courriel<input type="email" id="emp-email"></label>
+          <label>Titre d'emploi
+            <select id="emp-jobtitle"><option value="">—</option></select>
+          </label>
+          <label>N° employé<input type="text" id="emp-number"></label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-projects" class="hidden">
+      <div class="card">
+        <h2>Projets</h2>
+        <p class="sub">Le rayon toléré définit la marge d'erreur GPS (en mètres) acceptée au poinçon pour ce chantier. « Hors CCQ seulement » restreint les tâches sélectionnables au poinçon aux tâches non-CCQ.</p>
+        <input type="text" id="proj-search" placeholder="Rechercher un projet…" style="margin-bottom:12px; width:100%; max-width:320px;">
+        <div id="projects-list"><div class="empty-state">Chargement…</div></div>
+        <form id="form-add-project" class="inline-form">
+          <label>Nom<input type="text" id="proj-name" required></label>
+          <label>Code<input type="text" id="proj-code"></label>
+          <label style="position:relative;">
+            Adresse du chantier
+            <input type="text" id="proj-address" autocomplete="off" placeholder="Ex. 1234 rue Principale, Ville">
+            <div id="proj-address-suggestions" class="address-suggestions hidden"></div>
+            <span id="proj-address-hint" class="sub" style="margin:2px 0 0;">Sélectionnez une adresse dans la liste pour activer la géolocalisation.</span>
+          </label>
+          <input type="hidden" id="proj-lat">
+          <input type="hidden" id="proj-lng">
+          <label># Projet Avantage<input type="text" id="proj-num-avantage" placeholder="Optionnel"></label>
+          <label>Rayon toléré (m)<input type="number" id="proj-rayon" min="1" value="500" style="width:90px;"></label>
+          <label class="checkline" style="margin-bottom:6px;"><input type="checkbox" id="proj-hors-ccq"> Hors CCQ seulement</label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="tab-planif" class="hidden">
+      <div class="card">
+        <div class="placeholder-box">
+          📅 Le module de planification pour votre entreprise est en construction.<br>
+          Vos employés et projets créés ci-dessus y seront visibles une fois disponible.
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-acces" class="hidden">
+      <p class="sub" style="margin:0 0 12px;">
+        Les comptes en « Lecture seule » peuvent consulter le Tableau de bord, la Vue de la semaine/employé/projet et générer les exports (PDF, Export paie), mais ne peuvent rien modifier ni approuver. Ceci ne concerne pas les comptes employés (module Poinçon mobile), gérés dans l'onglet « Comptes employés ».
+      </p>
+      <div class="card">
+        <h2>Créer un nouvel accès</h2>
+        <form id="form-add-access" class="inline-form">
+          <label>Nom<input type="text" id="acces-new-name" placeholder="Prénom Nom"></label>
+          <label>Courriel<input type="email" id="acces-new-email" required placeholder="nom@entreprise.com"></label>
+          <label>Mot de passe temporaire<input type="text" id="acces-new-pass" required placeholder="Min. 5 caractères"></label>
+          <label>Accès
+            <select id="acces-new-role">
+              <option value="admin">Accès complet</option>
+              <option value="lecture-seule">Lecture seule</option>
+            </select>
+          </label>
+          <button type="submit" class="btn-primary">+ Créer l'accès</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Accès existants</h2>
+        <div id="acces-content"><div class="empty-state">Chargement…</div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZXhhY3RvYXBwLmNhJA';
+
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.entries(attrs).forEach(([k, v]) => { if (k === 'src') s.src = v; else s.setAttribute(k, v); });
+    s.async = true; s.crossOrigin = 'anonymous';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function showToast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+async function callApi(resource, action, body) {
+  const token = await Clerk.session.getToken();
+  const res = await fetch('/api/tenant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(Object.assign({ resource, action }, body || {}))
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('Erreur ' + res.status));
+  return data;
+}
+
+// ----- Thème clair/sombre (mémorisé par navigateur, défaut = clair — parité admin.html EPD) -----
+function currentTheme() { return document.documentElement.getAttribute('data-theme') || 'light'; }
+function updateThemeToggleIcon() {
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+}
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('exactoTheme_monEntreprise', theme); } catch (e) { /* navigation privée, tant pis */ }
+  updateThemeToggleIcon();
+}
+document.getElementById('theme-toggle').addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
+updateThemeToggleIcon();
+
+// ===================== Mode "lecture seule" (Gestion des accès) =====================
+// Les boutons d'action (approuver/rejeter/créer/modifier/messages/etc.) sont masqués via les
+// règles CSS `.role-readonly` (déclaratif, s'applique automatiquement à tout contenu généré).
+// Les champs éditables qui restent visibles (Vue par employé/projet) doivent en plus être
+// désactivés en JS puisque `disabled` est une propriété DOM, pas un style — un MutationObserver
+// couvre tout contenu inséré dynamiquement, sans avoir à modifier chacune des fonctions de rendu.
+const READONLY_LOCK_SELECTOR = 'input.inp-debut, input.inp-fin, input.inp-km, input.inp-demi, input.inp-double, ' +
+  'select.sel-tache, input.chk-prime-appliquee, .day-sep-pauses input, ' +
+  'select.pw-edit-project, input.pw-edit-start, input.pw-edit-end, input.pw-edit-morning, input.pw-edit-lunch, ' +
+  'input.pw-edit-afternoon, input.pw-edit-ot15, input.pw-edit-ot2, input.pw-edit-prime, input.pw-edit-km';
+
+function lockReadOnlyInputs(root) {
+  (root || document).querySelectorAll(READONLY_LOCK_SELECTOR).forEach(el => { el.disabled = true; });
+}
+
+function startReadOnlyEnforcement() {
+  lockReadOnlyInputs(document);
+  new MutationObserver(muts => {
+    for (const m of muts) {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType !== 1) return;
+        if (node.matches && node.matches(READONLY_LOCK_SELECTOR)) node.disabled = true;
+        lockReadOnlyInputs(node);
+      });
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
+// ===================== Onglets =====================
+const TAB_IDS = ['dashboard', 'semaine', 'parempl', 'parprojet', 'comptes', 'projects', 'export', 'planif', 'config', 'acces'];
+let accesTabLoaded = false;
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    TAB_IDS.forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab);
+    });
+    if (btn.dataset.tab === 'acces' && !accesTabLoaded) {
+      accesTabLoaded = true;
+      loadAccesTenant();
+    }
+  });
+});
+
+// ===================== Configuration =====================
+let configCache = null;
+let tachesCache = [];
+let pendingLogoDataUrl = undefined; // undefined = pas modifié, null = retiré, string = nouveau logo
+
+async function loadConfig() {
+  const data = await callApi('config', 'get');
+  configCache = data;
+  tachesCache = data.taches || [];
+  const s = data.settings || {};
+  document.getElementById('config-readonly-flags').innerHTML =
+    `Entreprise de la construction (CCQ) : <strong>${s.ccqEnabled ? 'Activé' : 'Désactivé'}</strong> &nbsp;·&nbsp; ` +
+    `Accès au module Planification : <strong>${s.planifEnabled ? 'Activé' : 'Désactivé'}</strong>`;
+  document.getElementById('cfg-primes-enabled').checked = !!s.primesEnabled;
+  document.getElementById('cfg-payroll').value = s.payrollSoftware || '';
+  document.getElementById('tab-planif-btn').classList.toggle('hidden', !s.planifEnabled);
+  document.getElementById('cfg-company-name').value = s.companyName || '';
+  document.getElementById('cfg-company-address').value = s.companyAddress || '';
+  document.getElementById('cfg-company-code-avantage').value = s.companyCodeAvantage || '';
+  pendingLogoDataUrl = undefined;
+  const logoImg = document.getElementById('cfg-logo-preview');
+  if (s.companyLogo) { logoImg.src = s.companyLogo; logoImg.classList.remove('hidden'); }
+  else { logoImg.src = ''; logoImg.classList.add('hidden'); }
+  renderJobTitles(data.jobTitles || []);
+  renderPrimes(data.primes || []);
+  renderJobTitleOptions(data.jobTitles || []);
+}
+
+let editingJobTitleId = null;
+let jobTitlesCache = [];
+let editingTacheId = null;
+
+function renderJobTitles(list) {
+  jobTitlesCache = list;
+  const el = document.getElementById('job-titles-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun métier ajouté.</div>'; return; }
+  el.innerHTML = list.map(jt => {
+    const taches = tachesCache.filter(t => t.jobTitleId === jt.id);
+    const headerHtml = jt.id === editingJobTitleId
+      ? `<input type="text" class="edit-jt-name" value="${escapeHtml(jt.name)}" style="font-weight:600;">
+         <button class="btn-primary btn-sm" data-act="save-jt" data-id="${jt.id}">Enregistrer</button>
+         <button class="btn-outline btn-sm" data-act="cancel-jt">Annuler</button>`
+      : `<strong style="flex:1;">${escapeHtml(jt.name)}</strong>
+         <button class="btn-outline btn-sm" data-act="edit-jt" data-id="${jt.id}">Modifier</button>
+         <button class="btn-outline btn-sm" data-act="del-jt" data-id="${jt.id}">Supprimer le métier</button>`;
+    const tachesRowsHtml = taches.length
+      ? taches.map(t => {
+          if (t.id === editingTacheId) {
+            return `<tr data-tache-id="${t.id}">
+              <td><input type="text" class="edit-tache-name" value="${escapeHtml(t.name)}"></td>
+              <td style="text-align:center;"><input type="checkbox" class="edit-tache-ccq" ${t.ccq ? 'checked' : ''}></td>
+              <td><input type="text" class="edit-tache-code" value="${escapeHtml(t.codeAvantage || '')}"></td>
+              <td style="text-align:right; white-space:nowrap;">
+                <button class="btn-primary btn-sm" data-act="save-tache" data-id="${t.id}">Enregistrer</button>
+                <button class="btn-outline btn-sm" data-act="cancel-tache">Annuler</button>
+              </td>
+            </tr>`;
+          }
+          return `<tr data-tache-id="${t.id}">
+            <td>${escapeHtml(t.name)}</td>
+            <td style="text-align:center;">${t.ccq ? '✅' : '—'}</td>
+            <td>${escapeHtml(t.codeAvantage || '—')}</td>
+            <td style="text-align:right; white-space:nowrap;">
+              <button class="btn-outline btn-sm" data-act="edit-tache" data-id="${t.id}">Modifier</button>
+              <button class="btn-outline btn-sm" data-act="del-tache" data-id="${t.id}">Supprimer</button>
+            </td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="4" class="empty-state" style="padding:10px;">Aucune tâche pour ce métier.</td></tr>`;
+    return `<div class="jt-block" style="border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px;" data-jt-id="${jt.id}">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">${headerHtml}</div>
+      <table><thead><tr><th>Tâche</th><th style="text-align:center;">CCQ</th><th>Code Avantage</th><th></th></tr></thead>
+        <tbody>${tachesRowsHtml}</tbody></table>
+      <form class="inline-form add-tache-form" data-jobtitle-id="${jt.id}">
+        <label>Nom de la tâche<input type="text" class="tache-name" required></label>
+        <label class="checkline" style="margin-bottom:6px;"><input type="checkbox" class="tache-ccq" checked> CCQ</label>
+        <label>Code Avantage<input type="text" class="tache-code" placeholder="Optionnel"></label>
+        <button type="submit" class="btn-primary btn-sm">Ajouter la tâche</button>
+      </form>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-act="del-jt"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Supprimer ce métier et toutes ses tâches ?')) return;
+      try { await callApi('config', 'deleteJobTitle', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-jt"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingJobTitleId = btn.dataset.id; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-jt"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingJobTitleId = null; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="save-jt"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.jt-block');
+      const name = row.querySelector('.edit-jt-name').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updateJobTitle', { id: btn.dataset.id, name });
+        editingJobTitleId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+
+  el.querySelectorAll('[data-act="del-tache"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('config', 'deleteTache', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-tache"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingTacheId = btn.dataset.id; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-tache"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingTacheId = null; renderJobTitles(jobTitlesCache); });
+  });
+  el.querySelectorAll('[data-act="save-tache"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const name = row.querySelector('.edit-tache-name').value.trim();
+      const ccq = row.querySelector('.edit-tache-ccq').checked;
+      const codeAvantage = row.querySelector('.edit-tache-code').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updateTache', { id: btn.dataset.id, name, ccq, codeAvantage });
+        editingTacheId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+
+  el.querySelectorAll('.add-tache-form').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const jobTitleId = form.dataset.jobtitleId;
+      const name = form.querySelector('.tache-name').value.trim();
+      const ccq = form.querySelector('.tache-ccq').checked;
+      const codeAvantage = form.querySelector('.tache-code').value.trim();
+      if (!name) { showToast('Le nom de la tâche est requis.'); return; }
+      try {
+        await callApi('config', 'createTache', { jobTitleId, name, ccq, codeAvantage });
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+function renderJobTitleOptions(list) {
+  const sel = document.getElementById('emp-jobtitle');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">—</option>' + list.map(jt => `<option value="${escapeHtml(jt.name)}">${escapeHtml(jt.name)}</option>`).join('');
+  sel.value = current;
+}
+
+let editingPrimeId = null;
+let primesCache = [];
+
+function renderPrimes(list) {
+  primesCache = list;
+  const el = document.getElementById('primes-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucune prime ajoutée.</div>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Nom</th><th>%</th><th>Code</th><th></th></tr></thead><tbody>${list.map(p => {
+    if (p.id === editingPrimeId) {
+      return `<tr data-id="${p.id}">
+        <td><input type="text" class="edit-pr-name" value="${escapeHtml(p.name)}"></td>
+        <td><input type="text" class="edit-pr-percentage" value="${escapeHtml(p.percentage || '')}"></td>
+        <td><input type="text" class="edit-pr-code" value="${escapeHtml(p.code || '')}"></td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-primary btn-sm" data-act="save-prime" data-id="${p.id}">Enregistrer</button>
+          <button class="btn-outline btn-sm" data-act="cancel-prime">Annuler</button>
+        </td>
+      </tr>`;
+    }
+    return `<tr data-id="${p.id}">
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.percentage || '—')}</td>
+      <td>${escapeHtml(p.code || '—')}</td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn-outline btn-sm" data-act="edit-prime" data-id="${p.id}">Modifier</button>
+        <button class="btn-outline btn-sm" data-act="del-prime" data-id="${p.id}">Supprimer</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-act="del-prime"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('config', 'deletePrime', { id: btn.dataset.id }); await loadConfig(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-prime"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingPrimeId = btn.dataset.id; renderPrimes(primesCache); });
+  });
+  el.querySelectorAll('[data-act="cancel-prime"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingPrimeId = null; renderPrimes(primesCache); });
+  });
+  el.querySelectorAll('[data-act="save-prime"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const name = row.querySelector('.edit-pr-name').value.trim();
+      const percentage = row.querySelector('.edit-pr-percentage').value.trim();
+      const code = row.querySelector('.edit-pr-code').value.trim();
+      if (!name) { showToast('Le nom est requis.'); return; }
+      try {
+        await callApi('config', 'updatePrime', { id: btn.dataset.id, name, percentage, code });
+        editingPrimeId = null;
+        await loadConfig();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+document.getElementById('form-add-jobtitle').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('jt-name').value.trim();
+  try {
+    await callApi('config', 'createJobTitle', { name });
+    e.target.reset();
+    await loadConfig();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+document.getElementById('form-add-prime').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('pr-name').value.trim();
+  const percentage = document.getElementById('pr-percentage').value.trim();
+  const code = document.getElementById('pr-code').value.trim();
+  try {
+    await callApi('config', 'createPrime', { name, percentage, code });
+    e.target.reset();
+    await loadConfig();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+async function saveSettingsFromInputs() {
+  const primesEnabled = document.getElementById('cfg-primes-enabled').checked;
+  const payrollSoftware = document.getElementById('cfg-payroll').value || null;
+  try {
+    await callApi('config', 'updateSettings', { primesEnabled, payrollSoftware });
+    showToast('Réglages enregistrés.');
+  } catch (err) { showToast('Erreur: ' + err.message); }
+}
+document.getElementById('cfg-primes-enabled').addEventListener('change', saveSettingsFromInputs);
+document.getElementById('cfg-payroll').addEventListener('change', saveSettingsFromInputs);
+
+// ----- Générale (nom/adresse/logo/code Avantage de l'entreprise) -----
+document.getElementById('cfg-logo-file').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 1.5 * 1024 * 1024) { showToast('Le logo doit faire moins de 1.5 Mo.'); e.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    pendingLogoDataUrl = reader.result;
+    const img = document.getElementById('cfg-logo-preview');
+    img.src = pendingLogoDataUrl;
+    img.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('cfg-logo-remove').addEventListener('click', () => {
+  pendingLogoDataUrl = null;
+  const img = document.getElementById('cfg-logo-preview');
+  img.src = '';
+  img.classList.add('hidden');
+  document.getElementById('cfg-logo-file').value = '';
+});
+
+document.getElementById('cfg-save-general').addEventListener('click', async () => {
+  const companyName = document.getElementById('cfg-company-name').value.trim();
+  const companyAddress = document.getElementById('cfg-company-address').value.trim();
+  const companyCodeAvantage = document.getElementById('cfg-company-code-avantage').value.trim();
+  const primesEnabled = document.getElementById('cfg-primes-enabled').checked;
+  const payrollSoftware = document.getElementById('cfg-payroll').value || null;
+  const payload = { primesEnabled, payrollSoftware, companyName, companyAddress, companyCodeAvantage };
+  if (pendingLogoDataUrl !== undefined) payload.companyLogo = pendingLogoDataUrl;
+  try {
+    await callApi('config', 'updateSettings', payload);
+    pendingLogoDataUrl = undefined;
+    showToast('Réglages généraux enregistrés.');
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Employés =====================
+let editingEmployeeId = null;
+let creatingAccessId = null;
+let employeesCache = [];
+
+function jobTitleOptionsHtml(selected) {
+  const list = (configCache && configCache.jobTitles) || jobTitlesCache || [];
+  return '<option value="">—</option>' + list.map(jt => `<option value="${escapeHtml(jt.name)}" ${jt.name === selected ? 'selected' : ''}>${escapeHtml(jt.name)}</option>`).join('');
+}
+
+async function loadEmployees() {
+  const { employees } = await callApi('employees', 'list');
+  employeesCache = employees;
+  renderEmployees();
+}
+
+function renderEmployees() {
+  const list = employeesCache;
+  const el = document.getElementById('employees-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun employé pour l\'instant.</div>'; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>Nom</th><th>Téléphone</th><th>Courriel</th><th>Titre</th><th>N°</th><th>Statut</th><th>Accès poinçon</th><th></th>
+    </tr></thead><tbody>${list.map(e => {
+      if (e.id === editingEmployeeId) {
+        return `<tr data-id="${e.id}">
+          <td><input type="text" class="edit-emp-name" value="${escapeHtml(e.fullName)}"></td>
+          <td><input type="tel" class="edit-emp-phone" value="${escapeHtml(e.phone || '')}"></td>
+          <td><input type="email" class="edit-emp-email" value="${escapeHtml(e.email || '')}"></td>
+          <td><select class="edit-emp-jobtitle">${jobTitleOptionsHtml(e.jobTitle)}</select></td>
+          <td><input type="text" class="edit-emp-number" value="${escapeHtml(e.employeeNumber || '')}"></td>
+          <td><span class="badge ${e.status === 'actif' ? 'badge-en_cours' : 'badge-termine'}">${e.status === 'actif' ? 'Actif' : 'Inactif'}</span></td>
+          <td>—</td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn-primary btn-sm" data-act="save-emp" data-id="${e.id}">Enregistrer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-emp">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      if (e.id === creatingAccessId) {
+        return `<tr data-id="${e.id}">
+          <td colspan="6">
+            <strong>${escapeHtml(e.fullName)}</strong> — créer l'accès de connexion (module Poinçon)
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary);">Courriel<input type="email" class="access-email" value="${escapeHtml(e.email || '')}" required></label>
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-secondary);">Mot de passe temporaire<input type="text" class="access-password" placeholder="Min. 5 caractères" required></label>
+            </div>
+            <p class="sub" style="margin:8px 0 0;">L'employé devra changer ce mot de passe à sa première connexion.</p>
+          </td>
+          <td style="text-align:right; white-space:nowrap; vertical-align:top;">
+            <button class="btn-primary btn-sm" data-act="save-access" data-id="${e.id}">Créer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-access">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      return `<tr data-id="${e.id}">
+        <td>${escapeHtml(e.fullName)}</td>
+        <td>${escapeHtml(e.phone || '—')}</td>
+        <td>${escapeHtml(e.email || '—')}</td>
+        <td>${escapeHtml(e.jobTitle || '—')}</td>
+        <td>${escapeHtml(e.employeeNumber || '—')}</td>
+        <td><span class="badge ${e.status === 'actif' ? 'badge-en_cours' : 'badge-termine'}">${e.status === 'actif' ? 'Actif' : 'Inactif'}</span></td>
+        <td>${e.clerkUserId
+            ? '<span class="badge badge-en_cours">Actif</span>'
+            : `<button class="btn-outline btn-sm" data-act="create-access" data-id="${e.id}">Créer un accès</button>`}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-outline btn-sm" data-act="edit-emp" data-id="${e.id}">Modifier</button>
+          <button class="btn-outline btn-sm" data-act="toggle-emp" data-id="${e.id}" data-status="${e.status}">${e.status === 'actif' ? 'Désactiver' : 'Activer'}</button>
+          <button class="btn-outline btn-sm" data-act="del-emp" data-id="${e.id}">Supprimer</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-act="toggle-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const next = btn.dataset.status === 'actif' ? 'inactif' : 'actif';
+      try { await callApi('employees', 'update', { id: btn.dataset.id, status: next }); await loadEmployees(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="del-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('employees', 'remove', { id: btn.dataset.id }); await loadEmployees(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-emp"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingEmployeeId = btn.dataset.id; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="cancel-emp"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingEmployeeId = null; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="save-emp"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const fullName = row.querySelector('.edit-emp-name').value.trim();
+      const phone = row.querySelector('.edit-emp-phone').value.trim();
+      const email = row.querySelector('.edit-emp-email').value.trim();
+      const jobTitle = row.querySelector('.edit-emp-jobtitle').value;
+      const employeeNumber = row.querySelector('.edit-emp-number').value.trim();
+      if (!fullName) { showToast('Le nom complet est requis.'); return; }
+      try {
+        await callApi('employees', 'update', { id: btn.dataset.id, fullName, phone, email, jobTitle, employeeNumber });
+        editingEmployeeId = null;
+        await loadEmployees();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="create-access"]').forEach(btn => {
+    btn.addEventListener('click', () => { creatingAccessId = btn.dataset.id; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="cancel-access"]').forEach(btn => {
+    btn.addEventListener('click', () => { creatingAccessId = null; renderEmployees(); });
+  });
+  el.querySelectorAll('[data-act="save-access"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const email = row.querySelector('.access-email').value.trim();
+      const password = row.querySelector('.access-password').value;
+      if (!email) { showToast('Le courriel est requis.'); return; }
+      if (!password || password.length < 5) { showToast('Le mot de passe doit contenir au moins 5 caractères.'); return; }
+      try {
+        await callApi('employees', 'createAccess', { id: btn.dataset.id, email, password });
+        creatingAccessId = null;
+        await loadEmployees();
+        showToast('Accès créé avec succès.');
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+}
+
+document.getElementById('form-add-employee').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fullName = document.getElementById('emp-name').value.trim();
+  const phone = document.getElementById('emp-phone').value.trim();
+  const email = document.getElementById('emp-email').value.trim();
+  const jobTitle = document.getElementById('emp-jobtitle').value;
+  const employeeNumber = document.getElementById('emp-number').value.trim();
+  try {
+    await callApi('employees', 'create', { fullName, phone, email, jobTitle, employeeNumber });
+    e.target.reset();
+    await loadEmployees();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Recherche d'adresse (Nominatim / OpenStreetMap) =====================
+// Même famille d'outils que le reste de l'app (OSRM/Leaflet, déjà utilisés pour les distances et
+// les cartes) — gratuit, sans clé API. Biaisé sur le Québec (viewbox) pour de meilleurs résultats,
+// et addressdetails=1 pour aider Nominatim à retrouver le numéro civique quand les données
+// OpenStreetMap le permettent (la couverture des numéros civiques varie selon les secteurs).
+// Une fois une suggestion choisie, l'utilisateur peut continuer à ajuster le texte (ex. corriger
+// ou ajouter le numéro civique manquant) sans perdre les coordonnées déjà capturées — seul un champ
+// vidé complètement réinitialise la validation.
+const QC_VIEWBOX = '-79.9,45.0,-56.9,62.6';
+
+function attachAddressAutocomplete({ inputEl, suggestEl, latEl, lngEl, hintEl, initialValidated }) {
+  let timer = null;
+  let validated = !!initialValidated;
+
+  function hide() { suggestEl.classList.add('hidden'); suggestEl.innerHTML = ''; }
+
+  function mark() {
+    inputEl.classList.remove('addr-valid', 'addr-pending');
+    if (!inputEl.value.trim()) {
+      hintEl.textContent = 'Sélectionnez une adresse dans la liste pour activer la géolocalisation.';
+      return;
+    }
+    if (validated) {
+      inputEl.classList.add('addr-valid');
+      hintEl.textContent = '✓ Adresse géolocalisée. Vous pouvez ajuster le texte (ex. ajouter le numéro civique) sans perdre la localisation.';
+    } else {
+      inputEl.classList.add('addr-pending');
+      hintEl.textContent = '⚠ Choisissez une adresse dans la liste ci-dessous pour la géolocaliser.';
+    }
+  }
+
+  async function search(query) {
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=7&countrycodes=ca&viewbox=' + QC_VIEWBOX + '&bounded=0&q=' + encodeURIComponent(query);
+      const res = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
+      const results = await res.json();
+      if (!results.length) {
+        suggestEl.innerHTML = '<div class="addr-empty">Aucune adresse trouvée.</div>';
+        suggestEl.classList.remove('hidden');
+        return;
+      }
+      suggestEl.innerHTML = results.map((r, i) => `<div class="addr-opt" data-i="${i}">${escapeHtml(r.display_name)}</div>`).join('');
+      suggestEl.classList.remove('hidden');
+      suggestEl.querySelectorAll('.addr-opt').forEach(opt => {
+        opt.addEventListener('click', () => {
+          const r = results[Number(opt.dataset.i)];
+          inputEl.value = r.display_name;
+          latEl.value = r.lat;
+          lngEl.value = r.lon;
+          validated = true;
+          mark();
+          hide();
+        });
+      });
+    } catch (err) {
+      suggestEl.innerHTML = '<div class="addr-empty">Erreur de recherche d’adresse.</div>';
+      suggestEl.classList.remove('hidden');
+    }
+  }
+
+  inputEl.addEventListener('input', () => {
+    const q = inputEl.value.trim();
+    if (!q) { validated = false; latEl.value = ''; lngEl.value = ''; }
+    mark();
+    clearTimeout(timer);
+    if (q.length < 4) { hide(); return; }
+    timer = setTimeout(() => search(q), 450);
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#' + inputEl.id) && !e.target.closest('#' + suggestEl.id)) hide();
+  });
+  mark();
+
+  return {
+    isValidated: () => validated,
+    reset: () => { validated = false; mark(); },
+  };
+}
+
+let addProjectAddressAC = attachAddressAutocomplete({
+  inputEl: document.getElementById('proj-address'),
+  suggestEl: document.getElementById('proj-address-suggestions'),
+  latEl: document.getElementById('proj-lat'),
+  lngEl: document.getElementById('proj-lng'),
+  hintEl: document.getElementById('proj-address-hint'),
+  initialValidated: false,
+});
+
+// ===================== Projets =====================
+const PROJECT_STATUS_LABELS = { en_planification: 'En planification', en_cours: 'En cours', termine: 'Terminé' };
+let editingProjectId = null;
+let projectsCache = [];
+
+async function loadProjects() {
+  const { projects } = await callApi('projects', 'list');
+  projectsCache = projects;
+  renderProjects();
+}
+
+function projectStatusSelectHtml(p) {
+  return `<select data-act="status" data-id="${p.id}">
+      ${Object.entries(PROJECT_STATUS_LABELS).map(([v, l]) => `<option value="${v}" ${p.status === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select>`;
+}
+
+let projectSearchTerm = '';
+
+function renderProjects() {
+  const term = projectSearchTerm.trim().toLowerCase();
+  const list = term ? projectsCache.filter(p => (p.name || '').toLowerCase().includes(term) || (p.code || '').toLowerCase().includes(term)) : projectsCache;
+  const el = document.getElementById('projects-list');
+  if (!projectsCache.length) { el.innerHTML = '<div class="empty-state">Aucun projet pour l\'instant.</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="empty-state">Aucun projet ne correspond à la recherche.</div>'; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>Nom</th><th>Code</th><th>Adresse</th><th>Statut</th><th># Avantage</th><th>Rayon (m)</th><th>Hors CCQ</th><th></th>
+    </tr></thead><tbody>${list.map(p => {
+      if (p.id === editingProjectId) {
+        return `<tr data-id="${p.id}">
+          <td><input type="text" class="edit-proj-name" value="${escapeHtml(p.name)}"></td>
+          <td><input type="text" class="edit-proj-code" value="${escapeHtml(p.code || '')}"></td>
+          <td style="position:relative; min-width:220px;">
+            <input type="text" id="edit-proj-address-${p.id}" value="${escapeHtml(p.address || '')}" autocomplete="off">
+            <div id="edit-proj-address-suggestions-${p.id}" class="address-suggestions hidden"></div>
+            <div class="sub" id="edit-proj-address-hint-${p.id}" style="margin:2px 0 0;"></div>
+            <input type="hidden" id="edit-proj-lat-${p.id}" value="${p.lat != null ? p.lat : ''}">
+            <input type="hidden" id="edit-proj-lng-${p.id}" value="${p.lng != null ? p.lng : ''}">
+          </td>
+          <td>${projectStatusSelectHtml(p)}</td>
+          <td><input type="text" class="edit-proj-num-avantage" value="${escapeHtml(p.numAvantage || '')}" style="width:100px;"></td>
+          <td><input type="number" min="1" class="edit-proj-rayon" value="${p.rayonM != null ? p.rayonM : 500}" style="width:80px;"></td>
+          <td><input type="checkbox" class="edit-proj-hors-ccq" ${p.horsCcq ? 'checked' : ''}></td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn-primary btn-sm" data-act="save-proj" data-id="${p.id}">Enregistrer</button>
+            <button class="btn-outline btn-sm" data-act="cancel-proj">Annuler</button>
+          </td>
+        </tr>`;
+      }
+      return `<tr data-id="${p.id}">
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.code || '—')}</td>
+        <td>${escapeHtml(p.address || '—')}</td>
+        <td>${projectStatusSelectHtml(p)}</td>
+        <td>${escapeHtml(p.numAvantage || '—')}</td>
+        <td>${p.rayonM != null ? p.rayonM : 500}</td>
+        <td>${p.horsCcq ? 'Oui' : '—'}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn-outline btn-sm" data-act="edit-proj" data-id="${p.id}">Modifier</button>
+          <button class="btn-outline btn-sm" data-act="del-proj" data-id="${p.id}">Supprimer</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+
+  el.querySelectorAll('[data-act="status"]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      try {
+        await callApi('projects', 'update', { id: sel.dataset.id, status: sel.value });
+        showToast('Statut mis à jour.');
+        const row = projectsCache.find(x => x.id === sel.dataset.id);
+        if (row) row.status = sel.value;
+      } catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="del-proj"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('projects', 'remove', { id: btn.dataset.id }); await loadProjects(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  el.querySelectorAll('[data-act="edit-proj"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProjectId = btn.dataset.id; renderProjects(); });
+  });
+  el.querySelectorAll('[data-act="cancel-proj"]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProjectId = null; renderProjects(); });
+  });
+
+  if (editingProjectId) {
+    const p = list.find(x => x.id === editingProjectId);
+    if (p) {
+      const editAC = attachAddressAutocomplete({
+        inputEl: document.getElementById(`edit-proj-address-${p.id}`),
+        suggestEl: document.getElementById(`edit-proj-address-suggestions-${p.id}`),
+        latEl: document.getElementById(`edit-proj-lat-${p.id}`),
+        lngEl: document.getElementById(`edit-proj-lng-${p.id}`),
+        hintEl: document.getElementById(`edit-proj-address-hint-${p.id}`),
+        initialValidated: p.lat != null && p.lng != null,
+      });
+      el.querySelector(`[data-act="save-proj"][data-id="${p.id}"]`).addEventListener('click', async () => {
+        const row = el.querySelector(`tr[data-id="${p.id}"]`);
+        const name = row.querySelector('.edit-proj-name').value.trim();
+        const code = row.querySelector('.edit-proj-code').value.trim();
+        const address = document.getElementById(`edit-proj-address-${p.id}`).value.trim();
+        if (address && !editAC.isValidated()) {
+          showToast('Veuillez sélectionner une adresse dans la liste de suggestions.');
+          return;
+        }
+        const lat = address ? parseFloat(document.getElementById(`edit-proj-lat-${p.id}`).value) : undefined;
+        const lng = address ? parseFloat(document.getElementById(`edit-proj-lng-${p.id}`).value) : undefined;
+        const numAvantage = row.querySelector('.edit-proj-num-avantage').value.trim();
+        const rayonM = parseInt(row.querySelector('.edit-proj-rayon').value, 10) || 500;
+        const horsCcq = row.querySelector('.edit-proj-hors-ccq').checked;
+        if (!name) { showToast('Le nom du projet est requis.'); return; }
+        try {
+          await callApi('projects', 'update', { id: p.id, name, code, address, lat, lng, numAvantage, rayonM, horsCcq });
+          editingProjectId = null;
+          await loadProjects();
+        } catch (err) { showToast('Erreur: ' + err.message); }
+      });
+    }
+  }
+}
+
+document.getElementById('proj-search').addEventListener('input', (e) => {
+  projectSearchTerm = e.target.value;
+  renderProjects();
+});
+
+document.getElementById('form-add-project').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('proj-name').value.trim();
+  const code = document.getElementById('proj-code').value.trim();
+  const address = document.getElementById('proj-address').value.trim();
+  if (address && !addProjectAddressAC.isValidated()) {
+    showToast('Veuillez sélectionner une adresse dans la liste de suggestions.');
+    return;
+  }
+  const lat = address ? parseFloat(document.getElementById('proj-lat').value) : undefined;
+  const lng = address ? parseFloat(document.getElementById('proj-lng').value) : undefined;
+  const numAvantage = document.getElementById('proj-num-avantage').value.trim();
+  const rayonM = parseInt(document.getElementById('proj-rayon').value, 10) || 500;
+  const horsCcq = document.getElementById('proj-hors-ccq').checked;
+  try {
+    await callApi('projects', 'create', { name, code, address, lat, lng, numAvantage, rayonM, horsCcq });
+    e.target.reset();
+    document.getElementById('proj-rayon').value = 500;
+    addProjectAddressAC.reset();
+    await loadProjects();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Poinçons (admin) =====================
+// weekStart = dimanche (YYYY-MM-DD, calendrier local) — même convention que api/tenant.js.
+function pwToLocalISODate(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function pwSundayOfWeek(d) {
+  const dt = (d instanceof Date) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : new Date(d + 'T12:00:00');
+  dt.setDate(dt.getDate() - dt.getDay());
+  return pwToLocalISODate(dt);
+}
+function pwAddDays(sunday, days) {
+  const dt = new Date(sunday + 'T12:00:00');
+  dt.setDate(dt.getDate() + days);
+  return pwToLocalISODate(dt);
+}
+function pwFmtWeekLabel(sunday) {
+  const start = new Date(sunday + 'T12:00:00');
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const f = d => d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+  return `Semaine du ${f(start)} au ${f(end)}`;
+}
+function pwFmtTime(iso) {
+  if (!iso) return '…';
+  return new Date(iso).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
+}
+function pwFmtDate(iso) {
+  return new Date(iso).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', timeZone: 'America/Toronto' });
+}
+function pwStatusLabel(status) {
+  return { ouvert: 'En cours', ferme: 'En attente', auto_ferme: 'En attente (auto)', approuve: 'Approuvé', rejete: 'Rejeté', exporte: 'Exporté' }[status] || status;
+}
+function pwStatusBadgeClass(status) {
+  if (status === 'approuve' || status === 'exporte') return 'badge-en_cours';
+  if (status === 'rejete') return 'badge-termine';
+  return 'badge-planification';
+}
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ===================== Tableau de bord (parité admin.html — sans le volet "planifiés
+// aujourd'hui", puisque le Tenant n'a pas encore de module de planification) =====================
+let dashboardMap = null;
+let dashboardMarkersByEmp = {};
+async function loadDashboard() {
+  const el = document.getElementById('dashboard-content');
+  el.innerHTML = '<div class="empty-state">Chargement…</div>';
+  const today = torontoDateKeyClient(new Date().toISOString());
+  document.getElementById('dash-label').textContent = new Date(today + 'T12:00:00').toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  let punches;
+  try {
+    const data = await callApi('punchesAdmin', 'listToday', {});
+    punches = data.punches || [];
+  } catch (err) { el.innerHTML = `<div class="empty-state">Erreur: ${escapeHtml(err.message)}</div>`; return; }
+
+  const empIdsWithOpenPunch = new Set(punches.filter(p => p.status === 'ouvert').map(p => p.employeeId));
+  const empIdsWithAnyPunch = new Set(punches.map(p => p.employeeId));
+  const currentlyPunched = punches.filter(p => p.status === 'ouvert').sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || ''));
+  // "Terminé" = au moins un poinçon fermé aujourd'hui et AUCUN poinçon ouvert présentement.
+  const finished = Array.from(empIdsWithAnyPunch).filter(id => !empIdsWithOpenPunch.has(id)).map(id => {
+    const closedForEmp = punches.filter(p => p.employeeId === id && p.status !== 'ouvert');
+    return closedForEmp.slice().sort((a, b) => new Date(b.clockOut || 0) - new Date(a.clockOut || 0))[0] || null;
+  }).filter(Boolean).sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || ''));
+
+  const rowHtml = (name, sub) => `<div class="dash-emp-row"><span>${escapeHtml(name)}</span><span class="proj">${escapeHtml(sub)}</span></div>`;
+
+  el.innerHTML = `<div class="dashboard-grid">
+    <div class="dashboard-lists">
+      <div class="card"><h4>🟢 Actuellement poinçonnés (${currentlyPunched.length})</h4>
+        <div class="card-body">${currentlyPunched.length ? currentlyPunched.map(p => rowHtml(p.employeeName || '?', `${p.projectName || ''} · depuis ${pwFmtTime(p.clockIn)}`)).join('') : '<div class="empty-state">Personne actuellement.</div>'}</div>
+      </div>
+      <div class="card"><h4>⚪ Journée terminée (${finished.length})</h4>
+        <div class="card-body">${finished.length ? finished.map(p => rowHtml(p.employeeName || '?', `${p.projectName || ''} · fini à ${pwFmtTime(p.clockOut)}`)).join('') : '<div class="empty-state">Personne n\'a encore terminé.</div>'}</div>
+      </div>
+    </div>
+    <div class="card dashboard-map-card">
+      <h4>Carte des poinçons du jour</h4>
+      <input type="text" id="dash-map-search" list="dash-map-search-list" placeholder="🔎 Rechercher un employé…">
+      <datalist id="dash-map-search-list"></datalist>
+      <div id="dash-map-search-msg" style="font-size:11px;color:var(--text-secondary);min-height:14px;margin-bottom:4px;"></div>
+      <div class="map-legend">
+        <span><span class="dot" style="background:#00c875;"></span>Actuellement poinçonné</span>
+        <span><span class="dot" style="background:#8b8f9c;"></span>Journée terminée</span>
+      </div>
+      <div id="dashboard-map"></div>
+    </div>
+  </div>`;
+
+  // La carte (Leaflet, chargée depuis un CDN) est un "bonus" — si le script ne charge pas
+  // (réseau bloqué, CDN inaccessible, etc.), ça ne doit JAMAIS empêcher le reste de l'app de
+  // fonctionner (parité avec le comportement défensif d'admin.html).
+  try {
+    await ensureLeaflet();
+    renderDashboardMap(currentlyPunched, finished);
+  } catch (err) {
+    const mapEl = document.getElementById('dashboard-map');
+    if (mapEl) mapEl.outerHTML = '<div class="empty-state">Carte indisponible (problème réseau). Le reste du tableau de bord fonctionne normalement.</div>';
+  }
+}
+
+function renderDashboardMap(currentlyPunched, finished) {
+  const mapEl = document.getElementById('dashboard-map');
+  if (!mapEl || typeof L === 'undefined') return;
+  if (dashboardMap) { dashboardMap.remove(); dashboardMap = null; }
+  dashboardMap = L.map('dashboard-map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', maxZoom: 19 }).addTo(dashboardMap);
+
+  dashboardMarkersByEmp = {};
+  const bounds = [];
+  currentlyPunched.forEach(p => {
+    if (!isValidNum(p.gpsLatIn) || !isValidNum(p.gpsLngIn)) return;
+    const marker = L.circleMarker([p.gpsLatIn, p.gpsLngIn], { radius: 8, color: '#0a8a52', fillColor: '#00c875', fillOpacity: 0.9, weight: 2 })
+      .addTo(dashboardMap).bindPopup(`<strong>${escapeHtml(p.employeeName || '')}</strong><br>${escapeHtml(p.projectName || '')}<br>Depuis ${pwFmtTime(p.clockIn)}`);
+    dashboardMarkersByEmp[p.employeeId] = { marker, name: p.employeeName || '', latlng: [p.gpsLatIn, p.gpsLngIn] };
+    bounds.push([p.gpsLatIn, p.gpsLngIn]);
+  });
+  finished.forEach(p => {
+    if (!isValidNum(p.gpsLatOut) || !isValidNum(p.gpsLngOut)) return;
+    const marker = L.circleMarker([p.gpsLatOut, p.gpsLngOut], { radius: 7, color: '#5a5f6d', fillColor: '#8b8f9c', fillOpacity: 0.85, weight: 2 })
+      .addTo(dashboardMap).bindPopup(`<strong>${escapeHtml(p.employeeName || '')}</strong><br>${escapeHtml(p.projectName || '')}<br>Terminé à ${pwFmtTime(p.clockOut)}`);
+    dashboardMarkersByEmp[p.employeeId] = { marker, name: p.employeeName || '', latlng: [p.gpsLatOut, p.gpsLngOut] };
+    bounds.push([p.gpsLatOut, p.gpsLngOut]);
+  });
+
+  if (bounds.length) dashboardMap.fitBounds(bounds, { padding: [30, 30] });
+  else dashboardMap.setView([45.5019, -73.5674], 10); // Vue par défaut (Montréal) si aucune position GPS
+
+  const searchList = document.getElementById('dash-map-search-list');
+  if (searchList) searchList.innerHTML = Object.values(dashboardMarkersByEmp).map(m => `<option value="${escapeHtml(m.name)}"></option>`).join('');
+  const searchInput = document.getElementById('dash-map-search');
+  const searchMsg = document.getElementById('dash-map-search-msg');
+  if (searchInput) {
+    const doSearch = () => {
+      const term = searchInput.value.trim().toLowerCase();
+      if (!term) { searchMsg.textContent = ''; return; }
+      const match = Object.values(dashboardMarkersByEmp).find(m => m.name.toLowerCase().includes(term));
+      if (match) { dashboardMap.setView(match.latlng, 15); match.marker.openPopup(); searchMsg.textContent = ''; }
+      else { searchMsg.textContent = 'Aucun poinçon aujourd\'hui pour cet employé.'; }
+    };
+    searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    searchInput.addEventListener('change', doSearch);
+  }
+}
+document.getElementById('dash-refresh').addEventListener('click', loadDashboard);
+
+// ===================== Gestion des accès (Portail — admin / lecture seule du Tenant) =====================
+async function loadAccesTenant() {
+  const el = document.getElementById('acces-content');
+  el.innerHTML = '<div class="empty-state">Chargement…</div>';
+  try {
+    const { users } = await callApi('tenantAccess', 'list');
+    renderAccesTenant(users || []);
+  } catch (err) {
+    el.innerHTML = `<div class="empty-state">Erreur: ${escapeHtml(err.message)}</div>`;
+  }
+}
+function accesTenantRowHtml(u) {
+  const roleBadge = u.role === 'lecture-seule'
+    ? '<span class="badge badge-planification">Lecture seule</span>'
+    : '<span class="badge badge-en_cours">Accès complet</span>';
+  const actions = u.isSelf
+    ? '<span style="color:var(--text-secondary);font-size:12px;">(vous)</span>'
+    : `<button class="btn-outline btn-sm btn-acces-toggle" data-role="${u.role === 'lecture-seule' ? 'admin' : 'lecture-seule'}">${u.role === 'lecture-seule' ? 'Donner accès complet' : 'Passer en lecture seule'}</button>
+       <button class="btn-outline btn-sm btn-acces-remove">Supprimer</button>`;
+  return `<tr data-clerk="${u.clerkUserId}">
+    <td>${escapeHtml(u.name)}</td>
+    <td style="color:var(--text-secondary);">${escapeHtml(u.email)}</td>
+    <td>${roleBadge}</td>
+    <td style="text-align:right;white-space:nowrap;">${actions}</td>
+  </tr>`;
+}
+function renderAccesTenant(users) {
+  const el = document.getElementById('acces-content');
+  if (!users.length) { el.innerHTML = '<div class="empty-state">Aucun compte trouvé.</div>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Nom</th><th>Courriel</th><th>Accès</th><th></th></tr></thead>
+    <tbody>${users.map(accesTenantRowHtml).join('')}</tbody></table>`;
+  el.querySelectorAll('.btn-acces-toggle').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tr = btn.closest('tr');
+      const clerkUserId = tr.getAttribute('data-clerk');
+      const newRole = btn.getAttribute('data-role');
+      btn.disabled = true;
+      try {
+        await callApi('tenantAccess', 'setRole', { clerkUserId, role: newRole });
+        showToast('Accès mis à jour ✔');
+        loadAccesTenant();
+      } catch (err) { showToast('Erreur: ' + err.message); btn.disabled = false; }
+    });
+  });
+  el.querySelectorAll('.btn-acces-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tr = btn.closest('tr');
+      const nom = tr.children[0].textContent;
+      const clerkUserId = tr.getAttribute('data-clerk');
+      if (!confirm(`Supprimer définitivement l'accès de ${nom} ? Cette personne ne pourra plus se connecter au portail.`)) return;
+      btn.disabled = true;
+      try {
+        await callApi('tenantAccess', 'remove', { clerkUserId });
+        showToast('Accès supprimé ✔');
+        loadAccesTenant();
+      } catch (err) { showToast('Erreur: ' + err.message); btn.disabled = false; }
+    });
+  });
+}
+document.getElementById('form-add-access').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('acces-new-name').value.trim();
+  const email = document.getElementById('acces-new-email').value.trim();
+  const password = document.getElementById('acces-new-pass').value;
+  const role = document.getElementById('acces-new-role').value;
+  if (!email || !password) { showToast('Courriel et mot de passe requis.'); return; }
+  if (password.length < 5) { showToast('Le mot de passe doit contenir au moins 5 caractères.'); return; }
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    await callApi('tenantAccess', 'create', { name, email, password, role });
+    showToast('Accès créé ✔');
+    e.target.reset();
+    loadAccesTenant();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+  finally { btn.disabled = false; }
+});
+
+let pwWeekStart = pwSundayOfWeek(new Date());
+let pwPunchesCache = [];
+let pwEditingPunchId = null;
+let pwSelectedEmployeeId = '';
+let pwSelectedProjectId = '';
+let pwThreadsCache = [];              // { employeeId, employeeName, unread, lastMessage, lastAuthor }
+let pwEmployeeThreadCache = {};        // { [employeeId]: messages[] } — fil complet (toutes semaines), chargé à la demande
+let pwWeekSearchTerm = '';
+let pwEmployeeSearchTerm = '';
+let pwProjectSearchTerm = '';
+
+// Trois paires de boutons prév./suiv. (une par onglet basé sur la semaine — Vue de la semaine /
+// Vue par employé / Vue par projet), toutes pilotant la même semaine partagée (pwWeekStart) —
+// même patron qu'admin.html (wk-prev/wk-prev2/wk-prev3), qui garde une seule notion de semaine
+// affichée mais un contrôle par panneau puisque ce ne sont plus des sous-onglets d'un même écran.
+async function initPunchesTab() {
+  const goPrevWeek = async () => { pwWeekStart = pwAddDays(pwWeekStart, -7); await loadPunchesWeek(); };
+  const goNextWeek = async () => { pwWeekStart = pwAddDays(pwWeekStart, 7); await loadPunchesWeek(); };
+  ['wk-prev', 'wk-prev2', 'wk-prev3'].forEach(id => document.getElementById(id).addEventListener('click', goPrevWeek));
+  ['wk-next', 'wk-next2', 'wk-next3'].forEach(id => document.getElementById(id).addEventListener('click', goNextWeek));
+  ['wk-refresh', 'wk-refresh2', 'wk-refresh3'].forEach(id => document.getElementById(id).addEventListener('click', loadPunchesWeek));
+  document.getElementById('pw-employee-select').addEventListener('change', (e) => {
+    pwSelectedEmployeeId = e.target.value;
+    renderPtabEmployee();
+  });
+  document.getElementById('pw-project-select').addEventListener('change', (e) => {
+    pwSelectedProjectId = e.target.value;
+    renderPtabProject();
+  });
+  document.getElementById('pw-week-search').addEventListener('input', (e) => {
+    pwWeekSearchTerm = e.target.value; renderPtabWeek();
+  });
+  document.getElementById('pw-employee-search').addEventListener('input', (e) => {
+    pwEmployeeSearchTerm = e.target.value; populatePwEmployeeOptions();
+  });
+  document.getElementById('pw-project-search').addEventListener('input', (e) => {
+    pwProjectSearchTerm = e.target.value; populatePwProjectOptions();
+  });
+  document.getElementById('pw-export-btn').addEventListener('click', runPwExport);
+  populatePwSelects();
+  await loadPunchesWeek();
+}
+
+// Compteurs de messages non lus par employé — sert à annoter le sélecteur "Par employé" (parité
+// avec la pastille rouge du sidebar EPD) et à savoir si le fil doit être rafraîchi à l'ouverture.
+async function loadPwThreadsSummary() {
+  try {
+    const data = await callApi('tenantMessages', 'listAll');
+    pwThreadsCache = data.threads || [];
+  } catch (e) { pwThreadsCache = []; }
+}
+function unreadCountFor(employeeId) {
+  const t = pwThreadsCache.find(x => String(x.employeeId) === String(employeeId));
+  return t ? (t.unread || 0) : 0;
+}
+
+function populatePwEmployeeOptions() {
+  const empSel = document.getElementById('pw-employee-select');
+  const cur = empSel.value;
+  const term = pwEmployeeSearchTerm.trim().toLowerCase();
+  const list = term ? employeesCache.filter(e => e.fullName.toLowerCase().includes(term)) : employeesCache;
+  empSel.innerHTML = '<option value="">— Choisir —</option>' + list.map(e => {
+    const n = unreadCountFor(e.id);
+    return `<option value="${e.id}">${escapeHtml(e.fullName)}${n ? ` (${n} non lu${n > 1 ? 's' : ''})` : ''}</option>`;
+  }).join('');
+  if (list.some(e => e.id === cur)) empSel.value = cur;
+}
+function populatePwProjectOptions() {
+  const projSel = document.getElementById('pw-project-select');
+  const cur = projSel.value;
+  const term = pwProjectSearchTerm.trim().toLowerCase();
+  const list = term ? projectsCache.filter(p => p.name.toLowerCase().includes(term)) : projectsCache;
+  projSel.innerHTML = '<option value="">— Choisir —</option>' + list.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  if (list.some(p => p.id === cur)) projSel.value = cur;
+}
+
+function populatePwSelects() {
+  populatePwEmployeeOptions();
+  populatePwProjectOptions();
+
+  const mpEmp = document.getElementById('mp-employee');
+  mpEmp.innerHTML = '<option value="">—</option>' + employeesCache.filter(e => e.status === 'actif').map(e => `<option value="${e.id}">${escapeHtml(e.fullName)}</option>`).join('');
+  const mpProj = document.getElementById('mp-project');
+  mpProj.innerHTML = '<option value="">—</option>' + projectsCache.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  updateManualPunchTacheOptions();
+}
+
+// Tâches disponibles pour le formulaire d'ajout manuel — dépend du métier de l'employé
+// sélectionné et de la restriction "Hors CCQ seulement" du projet sélectionné (parité EPD).
+function updateManualPunchTacheOptions() {
+  const tacheSel = document.getElementById('mp-tache');
+  if (!tacheSel) return;
+  const empId = document.getElementById('mp-employee').value;
+  const projId = document.getElementById('mp-project').value;
+  const emp = employeesCache.find(e => e.id === empId);
+  const proj = projectsCache.find(p => p.id === projId);
+  const jt = emp && (configCache && configCache.jobTitles || []).find(j => j.name === emp.jobTitle);
+  let taches = jt ? (tachesCache || []).filter(t => t.jobTitleId === jt.id) : [];
+  if (proj && proj.horsCcq) taches = taches.filter(t => !t.ccq);
+  tacheSel.innerHTML = '<option value="">—</option>' + taches.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join('');
+}
+document.getElementById('mp-employee').addEventListener('change', updateManualPunchTacheOptions);
+document.getElementById('mp-project').addEventListener('change', updateManualPunchTacheOptions);
+
+async function loadPunchesWeek() {
+  const label = pwFmtWeekLabel(pwWeekStart);
+  ['wk-label', 'wk-label2', 'wk-label3'].forEach(id => { document.getElementById(id).textContent = label; });
+  pwEditingPunchId = null;
+  const elWeek = document.getElementById('ptab-week-table');
+  elWeek.innerHTML = '<div class="empty-state">Chargement…</div>';
+  try {
+    const [data] = await Promise.all([
+      callApi('punchesAdmin', 'listWeek', { weekStart: pwWeekStart }),
+      loadPwThreadsSummary(),
+    ]);
+    pwPunchesCache = data.punches || [];
+    const pending = pwPunchesCache.filter(p => p.status === 'ouvert' || p.status === 'ferme').length;
+    const badge = document.getElementById('pw-pending-badge');
+    if (pending > 0) { badge.textContent = pending + ' en attente'; badge.classList.remove('hidden'); }
+    else { badge.textContent = '✔ tout traité'; badge.classList.remove('hidden'); }
+    populatePwEmployeeOptions();
+    renderPtabWeek();
+    renderPtabEmployee();
+    renderPtabProject();
+  } catch (err) {
+    elWeek.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function pwPunchTableHtml(list, opts) {
+  opts = opts || {};
+  if (!list.length) return '<div class="empty-state">Aucun poinçon.</div>';
+  return `<table><thead><tr>
+      ${opts.showEmployee ? '<th>Employé</th>' : ''}
+      ${opts.showProject ? '<th>Projet</th>' : ''}
+      <th>Date</th><th>Début</th><th>Fin</th><th>Brut</th><th>Ajusté</th><th>1.5x</th><th>2x</th><th>Prime</th><th>Statut</th><th></th>
+    </tr></thead><tbody>${list.map(p => pwPunchRowHtml(p, opts)).join('')}</tbody></table>`;
+}
+
+function pwPunchRowHtml(p, opts) {
+  const editing = pwEditingPunchId === p.id;
+  const rowsHtml = `<tr data-id="${p.id}">
+      ${opts.showEmployee ? `<td>${escapeHtml(p.employeeName || '')}</td>` : ''}
+      ${opts.showProject ? `<td>${escapeHtml(p.projectName || '—')}</td>` : ''}
+      <td>${pwFmtDate(p.clockIn)}</td>
+      <td>${pwFmtTime(p.clockIn)}</td>
+      <td>${pwFmtTime(p.clockOut)}</td>
+      <td>${p.brutH != null ? p.brutH : '—'}</td>
+      <td>${p.ajusteH != null ? p.ajusteH : '—'}</td>
+      <td>${p.overtime15 != null ? p.overtime15 : '—'}</td>
+      <td>${p.overtime2 != null ? p.overtime2 : '—'}</td>
+      <td>${p.primeApplied ? '✔' : '—'}</td>
+      <td><span class="badge ${pwStatusBadgeClass(p.status)}">${pwStatusLabel(p.status)}</span></td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn-outline btn-sm" data-pw-act="edit" data-id="${p.id}">${editing ? 'Fermer' : 'Modifier'}</button>
+        ${p.status === 'ferme' || p.status === 'auto_ferme' ? `<button class="btn-outline btn-sm" data-pw-act="approve" data-id="${p.id}">Approuver</button><button class="btn-outline btn-sm" data-pw-act="reject" data-id="${p.id}">Rejeter</button>` : ''}
+        ${(p.status === 'approuve' || p.status === 'rejete') ? `<button class="btn-outline btn-sm" data-pw-act="restore" data-id="${p.id}">Restaurer</button>` : ''}
+      </td>
+    </tr>`;
+  const editRow = editing ? `<tr><td colspan="12">${pwEditFormHtml(p)}</td></tr>` : '';
+  return rowsHtml + editRow;
+}
+
+function pwEditFormHtml(p) {
+  const projectOptions = projectsCache.map(pr => `<option value="${pr.id}" ${pr.id === p.projectId ? 'selected' : ''}>${escapeHtml(pr.name)}</option>`).join('');
+  return `
+    <div class="punch-edit-block" data-edit-id="${p.id}">
+      <label>Projet<select class="pw-edit-project">${projectOptions}</select></label>
+      <label>Début<input type="datetime-local" class="pw-edit-start" value="${isoToDatetimeLocal(p.clockIn)}"></label>
+      <label>Fin<input type="datetime-local" class="pw-edit-end" value="${isoToDatetimeLocal(p.clockOut)}"></label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-morning" ${p.breakMorning ? 'checked' : ''}> Pause matin prise</label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-lunch" ${p.breakLunch ? 'checked' : ''}> Dîner pris</label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-afternoon" ${p.breakAfternoon ? 'checked' : ''}> Pause PM prise</label>
+      <label>Temps 1.5x (h)<input type="number" step="0.25" min="0" class="pw-edit-ot15" value="${p.overtime15 != null ? p.overtime15 : ''}"></label>
+      <label>Temps 2x (h)<input type="number" step="0.25" min="0" class="pw-edit-ot2" value="${p.overtime2 != null ? p.overtime2 : ''}"></label>
+      <label class="checkline" style="margin-top:14px;"><input type="checkbox" class="pw-edit-prime" ${p.primeApplied ? 'checked' : ''}> Prime appliquée</label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-primary btn-sm" data-pw-save="${p.id}">Enregistrer</button>
+        <button class="btn-outline btn-sm" data-pw-cancel="${p.id}">Annuler</button>
+      </div>
+    </div>
+  `;
+}
+
+function pwWireRowButtons(container) {
+  container.querySelectorAll('[data-pw-act="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pwEditingPunchId = pwEditingPunchId === btn.dataset.id ? null : btn.dataset.id;
+      renderPtabWeek(); renderPtabEmployee(); renderPtabProject();
+    });
+  });
+  container.querySelectorAll('[data-pw-act="approve"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'approve', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon approuvé.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-act="reject"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'reject', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon rejeté.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-act="restore"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'restore', { id: btn.dataset.id }); await loadPunchesWeek(); showToast('Poinçon restauré.'); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+  container.querySelectorAll('[data-pw-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => { pwEditingPunchId = null; renderPtabWeek(); renderPtabEmployee(); renderPtabProject(); });
+  });
+  container.querySelectorAll('[data-pw-save]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const block = btn.closest('.punch-edit-block');
+      const patch = {
+        projectId: block.querySelector('.pw-edit-project').value,
+        clockIn: block.querySelector('.pw-edit-start').value ? new Date(block.querySelector('.pw-edit-start').value).toISOString() : null,
+        clockOut: block.querySelector('.pw-edit-end').value ? new Date(block.querySelector('.pw-edit-end').value).toISOString() : null,
+        breakMorning: block.querySelector('.pw-edit-morning').checked,
+        breakLunch: block.querySelector('.pw-edit-lunch').checked,
+        breakAfternoon: block.querySelector('.pw-edit-afternoon').checked,
+        overtime15: block.querySelector('.pw-edit-ot15').value === '' ? null : Number(block.querySelector('.pw-edit-ot15').value),
+        overtime2: block.querySelector('.pw-edit-ot2').value === '' ? null : Number(block.querySelector('.pw-edit-ot2').value),
+        primeApplied: block.querySelector('.pw-edit-prime').checked,
+      };
+      btn.disabled = true;
+      try {
+        await callApi('punchesAdmin', 'editPunch', { id: btn.dataset.pwSave, patch });
+        pwEditingPunchId = null;
+        await loadPunchesWeek();
+        showToast('Poinçon modifié ✔');
+      } catch (err) { showToast('Erreur: ' + err.message); btn.disabled = false; }
+    });
+  });
+}
+
+function renderPtabWeek() {
+  const el = document.getElementById('ptab-week-table');
+  const term = pwWeekSearchTerm.trim().toLowerCase();
+  let list = [...pwPunchesCache];
+  if (term) list = list.filter(p => (p.employeeName || '').toLowerCase().includes(term) || (p.projectName || '').toLowerCase().includes(term));
+  const sorted = list.sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  el.innerHTML = pwPunchTableHtml(sorted, { showEmployee: true, showProject: true });
+  pwWireRowButtons(el);
+}
+
+// ===================== Vue détail commune (Par employé / Par projet — parité EPD renderEntityDetail) =====================
+
+function pwWeekDays() {
+  return [0, 1, 2, 3, 4, 5, 6].map(i => pwAddDays(pwWeekStart, i));
+}
+function torontoDateKeyClient(iso) {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+}
+function fmtDayHeader(dateKey) {
+  const d = new Date(dateKey + 'T12:00:00');
+  return d.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric' });
+}
+function fmtDaySepLabel(dateKey) {
+  const d = new Date(dateKey + 'T12:00:00');
+  const s = d.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'short' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function haversineMetersClient(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+// Géorepérage GPS : compare les coordonnées de début/fin du poinçon à l'adresse + rayon toléré du
+// PROJET DE CE POINÇON (voir Configuration > Projets) — mêmes champs déjà retournés par
+// punchesAdmin.listWeek/listByEmployee/listByProject (projectLat/Lng/RayonM).
+function geoStatusForPunch(p) {
+  if (!isValidNum(p.projectLat) || !isValidNum(p.projectLng)) return { debut: null, fin: null };
+  const radius = p.projectRayonM || 500;
+  const evalPos = (lat, lng) => {
+    if (!isValidNum(lat) || !isValidNum(lng)) return null;
+    const distance = Math.round(haversineMetersClient(p.projectLat, p.projectLng, lat, lng));
+    return { ok: distance <= radius, distance };
+  };
+  return { debut: evalPos(p.gpsLatIn, p.gpsLngIn), fin: evalPos(p.gpsLatOut, p.gpsLngOut) };
+}
+function isValidNum(v) { return typeof v === 'number' && isFinite(v); }
+function geoDotHtml(status) {
+  if (!status) return '';
+  const title = status.ok ? `Dans la zone du chantier (≈${status.distance} m)` : `Hors zone du chantier (≈${status.distance} m)`;
+  return `<span class="geo-dot ${status.ok ? 'geo-dot-ok' : 'geo-dot-bad'}" title="${title}"></span>`;
+}
+// Tâches autorisées pour un poinçon donné : celles du métier de l'employé, filtrées par la
+// restriction "Hors CCQ seulement" du projet visé (parité rowTacheOptionsHtml côté EPD).
+function tachesForRow(employeeJobTitle, projectHorsCcq) {
+  const jt = employeeJobTitle && (configCache && configCache.jobTitles || []).find(j => j.name === employeeJobTitle);
+  let list = jt ? (tachesCache || []).filter(t => t.jobTitleId === jt.id) : [];
+  if (projectHorsCcq) list = list.filter(t => !t.ccq);
+  return list;
+}
+function rowTacheOptionsHtml(employeeJobTitle, projectHorsCcq, selected) {
+  const list = tachesForRow(employeeJobTitle, projectHorsCcq);
+  if (!list.length) return `<option value="">—</option>`;
+  return list.map(t => `<option value="${escapeHtml(t.name)}" ${t.name === selected ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+}
+// Une tâche Hors CCQ ne permet jamais de temps 1.5x/2x (voir tenant.js — resolveTache/editPunch).
+function isPunchHorsCcq(p) {
+  if (!p.tache || !p.employeeJobTitle) return false;
+  const jt = (configCache && configCache.jobTitles || []).find(j => j.name === p.employeeJobTitle);
+  if (!jt) return false;
+  const t = (tachesCache || []).find(x => x.jobTitleId === jt.id && x.name === p.tache);
+  return !!(t && !t.ccq);
+}
+
+function renderEntityDetail(rows, groupField, counterpartLabel, opts) {
+  opts = opts || {};
+  const days = pwWeekDays();
+  const messagesHtmlTop = opts.showMessagesForEmpId ? renderMessagesSectionHtml(opts.showMessagesForEmpId) : '';
+  if (!rows.length) return '<div class="empty-state">Aucun poinçon cette semaine.</div>' + messagesHtmlTop;
+
+  const rejectedRows = rows.filter(p => p.status === 'rejete');
+  rows = rows.filter(p => p.status !== 'rejete');
+  if (!rows.length) {
+    return '<div class="empty-state">Aucun poinçon actif cette semaine.</div>' + messagesHtmlTop + renderRejectedSection(rejectedRows, counterpartLabel);
+  }
+
+  // --- Tableau sommaire (heures ajustées par jour + REG/1.5x/2x + sous-total par tâche) ---
+  const groups = {}, groupDemi = {}, groupDouble = {};
+  rows.forEach(p => {
+    const key = p[groupField] || '—';
+    groups[key] = groups[key] || {};
+    const dk = torontoDateKeyClient(p.clockIn);
+    groups[key][dk] = (groups[key][dk] || 0) + (Number(p.ajusteH) || 0);
+    groupDemi[key] = (groupDemi[key] || 0) + (Number(p.overtime15) || 0);
+    groupDouble[key] = (groupDouble[key] || 0) + (Number(p.overtime2) || 0);
+  });
+  const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  const dayTotals = {}; days.forEach(d => { dayTotals[d] = 0; });
+  let grandTotal = 0, grandDemi = 0, grandDouble = 0;
+
+  const tacheLabel = t => t || '(sans tâche)';
+  const byGroupTache = {};
+  rows.forEach(p => {
+    const key = p[groupField] || '—', t = tacheLabel(p.tache), dk = torontoDateKeyClient(p.clockIn);
+    byGroupTache[key] = byGroupTache[key] || {};
+    byGroupTache[key][t] = byGroupTache[key][t] || {};
+    byGroupTache[key][t][dk] = (byGroupTache[key][t][dk] || 0) + (Number(p.ajusteH) || 0);
+  });
+  const byTacheGlobal = {}, byTacheGlobalDemi = {}, byTacheGlobalDouble = {};
+  rows.forEach(p => {
+    const t = tacheLabel(p.tache), dk = torontoDateKeyClient(p.clockIn);
+    byTacheGlobal[t] = byTacheGlobal[t] || {};
+    byTacheGlobal[t][dk] = (byTacheGlobal[t][dk] || 0) + (Number(p.ajusteH) || 0);
+    byTacheGlobalDemi[t] = (byTacheGlobalDemi[t] || 0) + (Number(p.overtime15) || 0);
+    byTacheGlobalDouble[t] = (byTacheGlobalDouble[t] || 0) + (Number(p.overtime2) || 0);
+  });
+  const tacheNamesGlobal = Object.keys(byTacheGlobal).sort((a, b) => a.localeCompare(b));
+
+  let table = `<table class="summary-table"><thead><tr><th>${counterpartLabel === 'projet' ? 'Projet' : 'Employé'}</th>${days.map(d => `<th>${fmtDayHeader(d)}</th>`).join('')}<th>Total</th><th title="Heures à temps simple (Total moins 1.5x/2x)">REG</th><th title="Temps et demi (150%)">1.5x</th><th title="Temps double (200%)">2x</th></tr></thead><tbody>`;
+  groupNames.forEach(name => {
+    let rowTotal = 0;
+    table += `<tr><td>${escapeHtml(name)}</td>`;
+    days.forEach(d => { const v = groups[name][d] || 0; rowTotal += v; dayTotals[d] += v; grandTotal += v; table += `<td>${v ? v.toFixed(2) : '—'}</td>`; });
+    grandDemi += (groupDemi[name] || 0); grandDouble += (groupDouble[name] || 0);
+    const groupReg = rowTotal - (groupDemi[name] || 0) - (groupDouble[name] || 0);
+    table += `<td><strong>${rowTotal.toFixed(2)}</strong></td><td>${groupReg ? groupReg.toFixed(2) : '—'}</td><td>${groupDemi[name] ? groupDemi[name].toFixed(2) : '—'}</td><td>${groupDouble[name] ? groupDouble[name].toFixed(2) : '—'}</td></tr>`;
+    Object.keys(byGroupTache[name] || {}).sort((a, b) => a.localeCompare(b)).forEach(tn => {
+      let subTotal = 0;
+      table += `<tr class="subrow-tache"><td>↳ ${escapeHtml(tn)}</td>`;
+      days.forEach(d => { const v = byGroupTache[name][tn][d] || 0; subTotal += v; table += `<td>${v ? v.toFixed(2) : '—'}</td>`; });
+      table += `<td>${subTotal.toFixed(2)}</td><td></td><td></td><td></td></tr>`;
+    });
+  });
+  table += `</tbody><tfoot>`;
+  tacheNamesGlobal.forEach(tn => {
+    let rowTotalT = 0;
+    table += `<tr class="subtotal-tache"><td>Sous-total — ${escapeHtml(tn)}</td>`;
+    days.forEach(d => { const v = byTacheGlobal[tn][d] || 0; rowTotalT += v; table += `<td>${v ? v.toFixed(2) : '—'}</td>`; });
+    const tDemi = byTacheGlobalDemi[tn] || 0, tDouble = byTacheGlobalDouble[tn] || 0, tReg = rowTotalT - tDemi - tDouble;
+    table += `<td>${rowTotalT.toFixed(2)}</td><td>${tReg ? tReg.toFixed(2) : '—'}</td><td>${tDemi ? tDemi.toFixed(2) : '—'}</td><td>${tDouble ? tDouble.toFixed(2) : '—'}</td></tr>`;
+  });
+  const grandReg = grandTotal - grandDemi - grandDouble;
+  table += `<tr class="grand-total"><td>Total</td>${days.map(d => `<td>${dayTotals[d] ? dayTotals[d].toFixed(2) : '—'}</td>`).join('')}<td><strong>${grandTotal.toFixed(2)} h</strong></td><td><strong>${grandReg.toFixed(2)} h</strong></td><td><strong>${grandDemi.toFixed(2)} h</strong></td><td><strong>${grandDouble.toFixed(2)} h</strong></td></tr></tfoot></table>`;
+
+  // --- Suivi de l'approbation ---
+  const nApprouve = rows.filter(p => p.status === 'approuve' || p.status === 'exporte').length;
+  const nAttente = rows.filter(p => p.status === 'ouvert' || p.status === 'ferme').length;
+  const nRejete = rejectedRows.length;
+  const progress = `<div class="progress-note"><span class="badge badge-en_cours">Approuvé</span> ${nApprouve}<span><span class="badge badge-planification">En attente</span> ${nAttente}</span><span><span class="badge badge-termine">Rejeté</span> ${nRejete}</span></div>`;
+
+  // --- Avertissements (parité EPD) ---
+  let warnings = '';
+  if (opts.warnMissingCode) {
+    warnings += `<div class="warning-banner">⚠ Numéro d'employé manquant — requis pour l'export de paie Avantage.</div>`;
+  }
+  if (counterpartLabel === 'projet') {
+    // Vue par employé : avertissement CCQ si plus de 40h ajustées cette semaine.
+    const totalWeek = grandTotal;
+    if (totalWeek > 40) {
+      warnings += `<div class="warning-banner">⚠ Cet employé a ${totalWeek.toFixed(2)} h ajustées cette semaine (au-delà de 40 h) — vérifiez le temps supplémentaire CCQ.</div>`;
+    }
+  }
+
+  // --- Liste détaillée, groupée par jour (pauses gérées au niveau de la journée — parité EPD) ---
+  const DETAIL_COLSPAN = 11 + (opts.showPrimeColumn ? 1 : 0);
+  let list = `<div class="section-title">Détail des poinçons</div><table><thead><tr>
+    <th>Date</th><th>${counterpartLabel === 'projet' ? 'Employé' : 'Projet'}</th><th>Tâche</th><th>Début</th><th>Fin</th><th>Ajusté</th><th title="Temps et demi (150%) — jamais sur une tâche Hors CCQ">1.5x</th><th title="Temps double (200%) — jamais sur une tâche Hors CCQ">2x</th><th>KM</th>${opts.showPrimeColumn ? '<th title="Prime salariale — décochable pour ce poinçon précis">Prime</th>' : ''}<th>Statut</th><th></th>
+  </tr></thead><tbody>`;
+  const sorted = rows.slice().sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  const dayGroups = {};
+  sorted.forEach(p => { const dk = torontoDateKeyClient(p.clockIn); (dayGroups[dk] = dayGroups[dk] || []).push(p); });
+  let lastDate = null;
+  sorted.forEach(p => {
+    const dk = torontoDateKeyClient(p.clockIn);
+    if (dk !== lastDate) {
+      lastDate = dk;
+      const dayItems = dayGroups[dk];
+      let biggest = dayItems[0];
+      dayItems.forEach(it => { if ((Number(it.brutH) || 0) >= (Number(biggest.brutH) || 0)) biggest = it; });
+      const dayFinishMinutes = dayItems.reduce((max, it) => {
+        if (!it.clockOut) return max;
+        const d = new Date(it.clockOut);
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+        const h = Number(parts.find(x => x.type === 'hour').value), m = Number(parts.find(x => x.type === 'minute').value);
+        return Math.max(max, h * 60 + m);
+      }, 0);
+      const lunchApplicable = dayFinishMinutes >= 13 * 60;
+      const afternoonApplicable = dayFinishMinutes >= 14 * 60;
+      const dayTotalAjuste = dayItems.reduce((s, it) => s + (Number(it.ajusteH) || 0), 0);
+      list += `<tr class="day-sep" data-daysep="${dk}" data-biggest="${biggest.id}">
+        <td colspan="${DETAIL_COLSPAN}">
+          <div class="day-sep-inner">
+            <strong>${fmtDaySepLabel(dk)}</strong>
+            <span class="day-sep-pauses">
+              <label><input type="checkbox" class="day-chk-matin" ${biggest.breakMorning ? 'checked' : ''}> Pause matin prise</label>
+              <label><input type="checkbox" class="day-chk-diner" ${biggest.breakLunch ? 'checked' : ''} ${!lunchApplicable ? 'disabled' : ''}> Dîner pris</label>
+              <label><input type="checkbox" class="day-chk-pm" ${biggest.breakAfternoon ? 'checked' : ''} ${!afternoonApplicable ? 'disabled' : ''}> Pause PM prise</label>
+            </span>
+            <span class="day-sep-total">Total jour : <strong>${dayTotalAjuste.toFixed(2)} h</strong></span>
+          </div>
+        </td>
+      </tr>`;
+    }
+    const geoStatus = geoStatusForPunch(p);
+    const gpsLinks = [
+      isValidNum(p.gpsLatIn) ? `<a class="gps-link" target="_blank" href="https://maps.google.com/?q=${p.gpsLatIn},${p.gpsLngIn}">📍début</a>` : '',
+      isValidNum(p.gpsLatOut) ? `<a class="gps-link" target="_blank" href="https://maps.google.com/?q=${p.gpsLatOut},${p.gpsLngOut}">📍fin</a>` : '',
+    ].filter(Boolean).join(' ');
+    const counterpart = counterpartLabel === 'projet' ? p.employeeName : (p.projectName || '—');
+    const horsCcqRow = isPunchHorsCcq(p);
+    const supTitle = horsCcqRow ? 'title="Non disponible : tâche Hors CCQ"' : '';
+    const emp = employeesCache.find(e => e.id === p.employeeId);
+    const empPrime = emp && emp.primeId ? primesCache.find(pr => pr.id === emp.primeId) : null;
+    const primeCell = opts.showPrimeColumn
+      ? `<td>${empPrime ? `<label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" class="chk-prime-appliquee" ${p.primeApplied ? 'checked' : ''}> ${escapeHtml(empPrime.name)}${empPrime.percentage ? ' (' + escapeHtml(empPrime.percentage) + '%)' : ''}</label>` : '<span style="color:var(--text-secondary);">—</span>'}</td>`
+      : '';
+    list += `<tr data-item="${p.id}" data-daykey="${dk}">
+      <td>${pwFmtDate(p.clockIn)}<br>${gpsLinks}</td>
+      <td>${escapeHtml(counterpart || '—')}</td>
+      <td><select class="sel-tache">${rowTacheOptionsHtml(p.employeeJobTitle, p.projectHorsCcq, p.tache)}</select></td>
+      <td><div style="display:flex;align-items:center;gap:5px;"><input type="time" class="inp-debut" value="${pwFmtTimeInput(p.clockIn)}">${geoDotHtml(geoStatus.debut)}</div></td>
+      <td><div style="display:flex;align-items:center;gap:5px;"><input type="time" class="inp-fin" value="${pwFmtTimeInput(p.clockOut)}">${geoDotHtml(geoStatus.fin)}</div></td>
+      <td><strong>${p.ajusteH != null ? p.ajusteH : '—'}</strong></td>
+      <td><input type="number" step="0.05" min="0" class="inp-demi" ${supTitle} ${horsCcqRow ? 'disabled' : ''} value="${horsCcqRow ? 0 : (p.overtime15 || 0)}"></td>
+      <td><input type="number" step="0.05" min="0" class="inp-double" ${supTitle} ${horsCcqRow ? 'disabled' : ''} value="${horsCcqRow ? 0 : (p.overtime2 || 0)}"></td>
+      <td><input type="number" step="0.1" class="inp-km" value="${p.kmTraveled != null ? p.kmTraveled : ''}"></td>
+      ${primeCell}
+      <td><span class="badge ${pwStatusBadgeClass(p.status)}">${pwStatusLabel(p.status)}</span></td>
+      <td style="white-space:nowrap;">
+        ${p.status === 'ferme' || p.status === 'auto_ferme' ? `<button class="btn-outline btn-sm btn-approve">✔</button><button class="btn-outline btn-sm btn-reject">✘</button>` : ''}
+      </td>
+    </tr>`;
+  });
+  list += `</tbody></table>`;
+
+  const messagesHtml = opts.showMessagesForEmpId ? renderMessagesSectionHtml(opts.showMessagesForEmpId) : '';
+  return warnings + table + progress + list + messagesHtml + renderRejectedSection(rejectedRows, counterpartLabel);
+}
+
+function pwFmtTimeInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const h = parts.find(x => x.type === 'hour').value, m = parts.find(x => x.type === 'minute').value;
+  return `${h}:${m}`;
+}
+
+function renderRejectedSection(rows, counterpartLabel) {
+  if (!rows.length) return '';
+  let html = `<details class="rejected-details"><summary>Poinçons rejetés (${rows.length})</summary>
+    <table style="margin-top:8px;"><thead><tr><th>Date</th><th>${counterpartLabel === 'projet' ? 'Employé' : 'Projet'}</th><th>Début</th><th>Fin</th><th>Ajusté</th><th>Statut</th><th></th></tr></thead><tbody>`;
+  rows.slice().sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn)).forEach(p => {
+    const counterpart = counterpartLabel === 'projet' ? p.employeeName : p.projectName;
+    html += `<tr data-rejected-item="${p.id}">
+      <td>${pwFmtDate(p.clockIn)}</td><td>${escapeHtml(counterpart || '—')}</td><td>${pwFmtTime(p.clockIn)}</td><td>${pwFmtTime(p.clockOut)}</td><td>${p.ajusteH != null ? p.ajusteH : '—'}</td><td><span class="badge ${pwStatusBadgeClass(p.status)}">${pwStatusLabel(p.status)}</span></td>
+      <td><button class="btn-outline btn-sm btn-restore">↩ Restaurer</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table></details>`;
+  return html;
+}
+
+// --- Messages de l'employé, affichés au bas de sa Vue par employé (parité EPD — plus d'onglet séparé) ---
+function renderMessagesSectionHtml(empId) {
+  const msgs = pwEmployeeThreadCache[empId];
+  const emp = employeesCache.find(e => e.id === empId);
+  let bubbles;
+  if (!msgs) {
+    bubbles = '<div class="empty-state" style="padding:14px;">Chargement…</div>';
+  } else if (!msgs.length) {
+    bubbles = '<div class="empty-state" style="padding:14px;">Aucun message pour l\'instant.</div>';
+  } else {
+    bubbles = msgs.map(m => {
+      const mine = m.author === 'admin';
+      const when = new Date(m.createdAt).toLocaleString('fr-CA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
+      return `<div class="msg-bubble-row ${mine ? 'mine' : ''}">
+        <div class="msg-bubble ${mine ? 'admin' : 'emp'}">
+          <div class="msg-bubble-meta">${mine ? 'Vous' : escapeHtml((emp || {}).fullName || 'Employé')} · ${when}</div>
+          <div>${escapeHtml(m.body)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  return `<div class="section-title">Messages avec l'employé</div>
+    <div class="msg-thread" data-msg-emp="${empId}">${bubbles}</div>
+    <div class="msg-compose">
+      <textarea class="msg-compose-text" placeholder="Écrire un message à cet employé…"></textarea>
+      <button class="btn-primary btn-msg-send-new" data-emp="${empId}">✉️ Envoyer</button>
+    </div>`;
+}
+
+async function loadEmployeeThread(empId) {
+  try {
+    const data = await callApi('tenantMessages', 'thread', { employeeId: empId });
+    pwEmployeeThreadCache[empId] = data.messages || [];
+  } catch (e) { pwEmployeeThreadCache[empId] = []; }
+}
+
+function wireEntityDetailEvents(el, rows) {
+  // --- Approuver / Rejeter / Restaurer ---
+  el.querySelectorAll('tr[data-item]').forEach(tr => {
+    const id = tr.getAttribute('data-item');
+    const btnApprove = tr.querySelector('.btn-approve');
+    const btnReject = tr.querySelector('.btn-reject');
+    if (btnApprove) btnApprove.addEventListener('click', () => saveDayGroupTenant(el, tr.getAttribute('data-daykey'), rows, { statusId: id, statusLabel: 'approuve' }));
+    if (btnReject) btnReject.addEventListener('click', () => saveDayGroupTenant(el, tr.getAttribute('data-daykey'), rows, { statusId: id, statusLabel: 'rejete' }));
+  });
+  el.querySelectorAll('[data-rejected-item]').forEach(tr => {
+    const btn = tr.querySelector('.btn-restore');
+    if (btn) btn.addEventListener('click', async () => {
+      try { await callApi('punchesAdmin', 'restore', { id: tr.getAttribute('data-rejected-item') }); showToast('Poinçon restauré ✔'); await loadPunchesWeek(); }
+      catch (err) { showToast('Erreur: ' + err.message); }
+    });
+  });
+
+  // --- Autosave par journée : au blur d'une ligne, ou au changement d'une case pause de la
+  // ligne de séparation, on enregistre tous les segments de CETTE journée (parité saveDayGroup EPD).
+  el.querySelectorAll('table tbody tr[data-item]').forEach(tr => {
+    const dayKey = tr.getAttribute('data-daykey');
+    ['.inp-debut', '.inp-fin', '.inp-km', '.inp-demi', '.inp-double', '.chk-prime-appliquee', '.sel-tache'].forEach(sel => {
+      const input = tr.querySelector(sel);
+      if (input) input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => { tr.dataset.dirty = '1'; });
+    });
+    tr.addEventListener('focusout', () => {
+      setTimeout(() => {
+        if (tr.contains(document.activeElement)) return;
+        if (!document.body.contains(tr)) return;
+        if (tr.dataset.dirty !== '1') return;
+        tr.dataset.dirty = '0';
+        saveDayGroupTenant(el, dayKey, rows, {});
+      }, 80);
+    });
+  });
+  el.querySelectorAll('tr.day-sep').forEach(sepTr => {
+    const dayKey = sepTr.getAttribute('data-daysep');
+    ['.day-chk-matin', '.day-chk-diner', '.day-chk-pm'].forEach(sel => {
+      const input = sepTr.querySelector(sel);
+      if (input) input.addEventListener('change', () => saveDayGroupTenant(el, dayKey, rows, {}));
+    });
+  });
+
+  // --- Messages (envoi d'un nouveau message à l'employé affiché) ---
+  el.querySelectorAll('.btn-msg-send-new').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const empId = btn.dataset.emp;
+      const textarea = el.querySelector('.msg-compose-text');
+      const body = (textarea.value || '').trim();
+      if (!body) return;
+      btn.disabled = true;
+      try {
+        await callApi('tenantMessages', 'reply', { employeeId: empId, body });
+        await loadEmployeeThread(empId);
+        renderPtabEmployee();
+      } catch (err) { showToast('Erreur: ' + err.message); }
+      finally { btn.disabled = false; }
+    });
+  });
+}
+
+// Enregistre tous les segments (poinçons) d'une même journée pour un employé/projet donné :
+// Début/Fin/Tâche/KM/1.5x/2x propres à chaque segment, pauses (matin/dîner/PM) imputées
+// uniquement au poinçon "biggest" de la journée (les autres sont neutres — aucune pause cochée
+// n'ajoute d'heures) — même convention que le serveur (voir tenant.js, computePunchHours).
+async function saveDayGroupTenant(el, dayKey, rows, opts) {
+  opts = opts || {};
+  const daySepTr = el.querySelector(`tr.day-sep[data-daysep="${CSS.escape(dayKey)}"]`);
+  const rowTrs = Array.from(el.querySelectorAll(`tr[data-item][data-daykey="${CSS.escape(dayKey)}"]`));
+  if (!rowTrs.length) return;
+  const biggestId = daySepTr ? daySepTr.getAttribute('data-biggest') : (rowTrs[0] && rowTrs[0].getAttribute('data-item'));
+  const morningTaken = daySepTr ? daySepTr.querySelector('.day-chk-matin').checked : true;
+  const lunchTaken = daySepTr ? daySepTr.querySelector('.day-chk-diner').checked : true;
+  const afternoonTaken = daySepTr ? daySepTr.querySelector('.day-chk-pm').checked : true;
+
+  try {
+    for (const tr of rowTrs) {
+      const id = tr.getAttribute('data-item');
+      const p = rows.find(x => String(x.id) === String(id));
+      if (!p) continue;
+      const startTime = tr.querySelector('.inp-debut').value;
+      const endTime = tr.querySelector('.inp-fin').value;
+      const dk = tr.getAttribute('data-daykey');
+      const patch = {
+        clockIn: startTime ? new Date(`${dk}T${startTime}:00`).toISOString() : null,
+        clockOut: endTime ? new Date(`${dk}T${endTime}:00`).toISOString() : null,
+        tache: tr.querySelector('.sel-tache').value,
+        overtime15: Number(tr.querySelector('.inp-demi').value) || 0,
+        overtime2: Number(tr.querySelector('.inp-double').value) || 0,
+        kmTraveled: tr.querySelector('.inp-km').value === '' ? null : Number(tr.querySelector('.inp-km').value),
+      };
+      const isBiggest = String(id) === String(biggestId);
+      patch.breakMorning = isBiggest ? morningTaken : true;
+      patch.breakLunch = isBiggest ? lunchTaken : true;
+      patch.breakAfternoon = isBiggest ? afternoonTaken : true;
+      const chkPrime = tr.querySelector('.chk-prime-appliquee');
+      if (chkPrime) patch.primeApplied = chkPrime.checked;
+      if (opts.statusId && String(id) === String(opts.statusId)) {
+        // Le statut se change via approve/reject dédiés (déjà validés serveur — poinçon complet).
+        await callApi('punchesAdmin', opts.statusLabel === 'approuve' ? 'approve' : 'reject', { id });
+      }
+      await callApi('punchesAdmin', 'editPunch', { id, patch });
+    }
+    showToast('Enregistré ✔');
+  } catch (err) {
+    showToast('Erreur: ' + err.message);
+  } finally {
+    await loadPunchesWeek();
+  }
+}
+
+function renderPtabEmployee() {
+  const el = document.getElementById('ptab-employee-content');
+  const exportBtn = document.getElementById('pw-employee-export-btn');
+  const mapCard = document.getElementById('employee-map-card');
+  if (!pwSelectedEmployeeId) {
+    el.innerHTML = '<div class="empty-state">Choisissez un employé.</div>';
+    if (exportBtn) exportBtn.disabled = true;
+    if (mapCard) mapCard.style.display = 'none';
+    return;
+  }
+  const emp = employeesCache.find(e => e.id === pwSelectedEmployeeId);
+  const rows = pwPunchesCache.filter(p => p.employeeId === pwSelectedEmployeeId);
+  const empIdAtLoad = pwSelectedEmployeeId;
+  if (pwEmployeeThreadCache[empIdAtLoad] === undefined) {
+    // Consulter le fil de messages d'un employé = marquer lus ses messages côté serveur (voir
+    // tenantMessages.thread) — on rafraîchit ensuite la pastille de non-lus du sélecteur.
+    loadEmployeeThread(empIdAtLoad)
+      .then(() => loadPwThreadsSummary())
+      .then(() => { populatePwEmployeeOptions(); if (pwSelectedEmployeeId === empIdAtLoad) renderPtabEmployee(); });
+  }
+  const opts = {
+    showPrimeColumn: true,
+    showMessagesForEmpId: pwSelectedEmployeeId,
+    warnMissingCode: !!(emp && !emp.employeeNumber),
+  };
+  el.innerHTML = renderEntityDetail(rows, 'projectName', 'projet', opts);
+  wireEntityDetailEvents(el, rows);
+
+  // --- Export PDF (parité EPD — sommaire avec sous-lignes par tâche, sans détail par jour sur
+  // la ligne principale, plus le détail des poinçons avec pauses) ---
+  const empName = (emp && emp.fullName) || 'Employé';
+  if (exportBtn) {
+    exportBtn.disabled = !rows.length;
+    exportBtn.onclick = () => exportEntityPDF({
+      title: empName,
+      subtitle: pwFmtWeekLabel(pwWeekStart),
+      rows, days: pwWeekDays(), groupField: 'projectName', counterpartLabel: 'employe',
+      hideMainRowDayValues: true, includeTacheBreakdown: true,
+      filename: `Poinçons - ${empName} - ${pwWeekStart}.pdf`
+    });
+  }
+
+  // --- Carte des poinçons (Leaflet) — "bonus" : si le CDN ne charge pas, ça ne doit jamais
+  // bloquer le reste de la Vue par employé (même logique que le tableau de bord côté EPD).
+  if (mapCard) {
+    mapCard.style.display = rows.length ? '' : 'none';
+    if (rows.length) {
+      ensureLeaflet().then(() => renderEmployeeMap(rows)).catch(() => {
+        const mapEl = document.getElementById('employee-map');
+        if (mapEl) mapEl.outerHTML = '<div class="empty-state">Carte indisponible (problème réseau). Le reste de la vue fonctionne normalement.</div>';
+      });
+    }
+  }
+}
+
+function renderPtabProject() {
+  const el = document.getElementById('ptab-project-content');
+  const exportBtn = document.getElementById('pw-project-export-btn');
+  const mapCard = document.getElementById('project-map-card');
+  if (!pwSelectedProjectId) {
+    el.innerHTML = '<div class="empty-state">Choisissez un projet.</div>';
+    if (exportBtn) exportBtn.disabled = true;
+    if (mapCard) mapCard.style.display = 'none';
+    return;
+  }
+  const proj = projectsCache.find(p => p.id === pwSelectedProjectId);
+  const rows = pwPunchesCache.filter(p => p.projectId === pwSelectedProjectId);
+  el.innerHTML = renderEntityDetail(rows, 'employeeName', 'employe', { showPrimeColumn: false });
+  wireEntityDetailEvents(el, rows);
+
+  const projName = (proj && proj.name) || (rows[0] && rows[0].projectName) || 'Projet';
+  if (exportBtn) {
+    exportBtn.disabled = !rows.length;
+    exportBtn.onclick = () => exportEntityPDF({
+      title: projName,
+      subtitle: pwFmtWeekLabel(pwWeekStart),
+      rows, days: pwWeekDays(), groupField: 'employeeName', counterpartLabel: 'projet',
+      hideMainRowDayValues: false, includeTacheBreakdown: false,
+      filename: `Poinçons - ${projName} - ${pwWeekStart}.pdf`
+    });
+  }
+
+  if (mapCard) {
+    mapCard.style.display = rows.length ? '' : 'none';
+    if (rows.length) {
+      ensureLeaflet().then(() => renderProjectMap(rows)).catch(() => {
+        const mapEl = document.getElementById('project-map');
+        if (mapEl) mapEl.outerHTML = '<div class="empty-state">Carte indisponible (problème réseau). Le reste de la vue fonctionne normalement.</div>';
+      });
+    }
+  }
+}
+
+// ===================== Carte Leaflet (Vue par employé / Vue par projet) =====================
+let leafletLoaded = false;
+let employeeMap = null, employeeMapMarkers = {};
+let projectMap = null, projectMapMarkers = {};
+async function ensureLeaflet() {
+  if (leafletLoaded) return;
+  if (!document.getElementById('leaflet-css')) {
+    const link = document.createElement('link');
+    link.id = 'leaflet-css'; link.rel = 'stylesheet';
+    link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+    document.head.appendChild(link);
+  }
+  await loadExternalScript({ src: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js' });
+  leafletLoaded = true;
+}
+// Un marqueur par relevé GPS (début ET fin) de chaque poinçon fourni, coloré selon le
+// géorepérage (vert = dans la zone, rouge = hors zone, gris = non validable — pas d'adresse
+// géolocalisée pour ce projet ou relevé GPS absent), plus un cercle (rayon toléré) par CHANTIER
+// distinct référencé — même logique que geoStatusForPunch/geoDotHtml déjà utilisées dans le
+// tableau de détail. `labelField` choisit le libellé affiché dans les popups des marqueurs.
+function renderPunchMap(elId, rows, labelField) {
+  const mapEl = document.getElementById(elId);
+  if (!mapEl || typeof L === 'undefined') return null;
+  const map = L.map(elId);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', maxZoom: 19 }).addTo(map);
+
+  const markers = {};
+  const bounds = [];
+  const seenProj = new Set();
+  rows.forEach(p => {
+    if (!p.projectId || seenProj.has(p.projectId) || !isValidNum(p.projectLat) || !isValidNum(p.projectLng)) return;
+    seenProj.add(p.projectId);
+    const radius = p.projectRayonM || 500;
+    L.circle([p.projectLat, p.projectLng], { radius, color: '#3457d5', weight: 1, fillColor: '#3457d5', fillOpacity: 0.08 })
+      .addTo(map).bindPopup(`<strong>${escapeHtml(p.projectName || '')}</strong><br>Rayon toléré : ${radius} m`);
+    bounds.push([p.projectLat, p.projectLng]);
+  });
+
+  const colorForStatus = status => status
+    ? (status.ok ? { color: '#0a8a52', fillColor: '#00c875' } : { color: '#a3122f', fillColor: '#df2f4a' })
+    : { color: '#5a5f6d', fillColor: '#8b8f9c' };
+
+  rows.forEach(p => {
+    const geoStatus = geoStatusForPunch(p);
+    const label = p[labelField] || '';
+    const dk = torontoDateKeyClient(p.clockIn);
+    if (isValidNum(p.gpsLatIn) && isValidNum(p.gpsLngIn)) {
+      const col = colorForStatus(geoStatus.debut);
+      const marker = L.circleMarker([p.gpsLatIn, p.gpsLngIn], { radius: 7, color: col.color, fillColor: col.fillColor, fillOpacity: 0.9, weight: 2 })
+        .addTo(map).bindPopup(`<strong>${escapeHtml(label)}</strong><br>Début ${pwFmtTime(p.clockIn)} — ${dk}${geoStatus.debut ? `<br>≈${geoStatus.debut.distance} m du chantier` : ''}`);
+      markers[`${p.id}_debut`] = { marker, latlng: [p.gpsLatIn, p.gpsLngIn] };
+      bounds.push([p.gpsLatIn, p.gpsLngIn]);
+    }
+    if (isValidNum(p.gpsLatOut) && isValidNum(p.gpsLngOut)) {
+      const col = colorForStatus(geoStatus.fin);
+      const marker = L.circleMarker([p.gpsLatOut, p.gpsLngOut], { radius: 7, color: col.color, fillColor: col.fillColor, fillOpacity: 0.9, weight: 2 })
+        .addTo(map).bindPopup(`<strong>${escapeHtml(label)}</strong><br>Fin ${pwFmtTime(p.clockOut)} — ${dk}${geoStatus.fin ? `<br>≈${geoStatus.fin.distance} m du chantier` : ''}`);
+      markers[`${p.id}_fin`] = { marker, latlng: [p.gpsLatOut, p.gpsLngOut] };
+      bounds.push([p.gpsLatOut, p.gpsLngOut]);
+    }
+  });
+
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+  else map.setView([45.5019, -73.5674], 10); // Vue par défaut (Montréal) si aucune position GPS
+  return { map, markers };
+}
+function renderEmployeeMap(rows) {
+  if (employeeMap) { employeeMap.remove(); employeeMap = null; }
+  const result = renderPunchMap('employee-map', rows, 'projectName');
+  if (result) { employeeMap = result.map; employeeMapMarkers = result.markers; }
+}
+function renderProjectMap(rows) {
+  if (projectMap) { projectMap.remove(); projectMap = null; }
+  const result = renderPunchMap('project-map', rows, 'employeeName');
+  if (result) { projectMap = result.map; projectMapMarkers = result.markers; }
+}
+
+// ===================== Export PDF (Vue par employé / Vue par projet) =====================
+// Version statique (sans champs modifiables) du détail affiché à l'écran — capturée en image
+// (html2canvas) puis assemblée dans un PDF (jsPDF), paginé si le contenu dépasse une page — même
+// approche que l'export PDF de la Planification côté EPD.
+let exportLibsLoaded = false;
+async function ensureExportLibs() {
+  if (exportLibsLoaded) return;
+  await loadExternalScript({ src: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js' });
+  await loadExternalScript({ src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js' });
+  exportLibsLoaded = true;
+}
+function buildExportSummaryTableHtml(rows, days, groupField, counterpartLabel, opts) {
+  opts = opts || {};
+  const activeRows = rows.filter(p => p.status !== 'rejete');
+  const groups = {};
+  activeRows.forEach(p => {
+    const key = p[groupField] || '—';
+    groups[key] = groups[key] || {};
+    const dk = torontoDateKeyClient(p.clockIn);
+    groups[key][dk] = (groups[key][dk] || 0) + (Number(p.ajusteH) || 0);
+  });
+  const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  const dayTotals = {}; days.forEach(d => { dayTotals[d] = 0; });
+  let grandTotal = 0;
+
+  const tacheLabel = t => t || '(sans tâche)';
+  const byGroupTache = {}, byTacheGlobal = {};
+  if (opts.includeTacheBreakdown) {
+    activeRows.forEach(p => {
+      const key = p[groupField] || '—', t = tacheLabel(p.tache), dk = torontoDateKeyClient(p.clockIn);
+      byGroupTache[key] = byGroupTache[key] || {};
+      byGroupTache[key][t] = byGroupTache[key][t] || {};
+      byGroupTache[key][t][dk] = (byGroupTache[key][t][dk] || 0) + (Number(p.ajusteH) || 0);
+    });
+    activeRows.forEach(p => {
+      const t = tacheLabel(p.tache), dk = torontoDateKeyClient(p.clockIn);
+      byTacheGlobal[t] = byTacheGlobal[t] || {};
+      byTacheGlobal[t][dk] = (byTacheGlobal[t][dk] || 0) + (Number(p.ajusteH) || 0);
+    });
+  }
+  const tacheNamesGlobal = Object.keys(byTacheGlobal).sort((a, b) => a.localeCompare(b));
+
+  let table = `<table><thead><tr><th>${counterpartLabel === 'projet' ? 'Projet' : 'Employé'}</th>${days.map(d => `<th>${fmtDayHeader(d)}</th>`).join('')}<th>Total</th></tr></thead><tbody>`;
+  groupNames.forEach(name => {
+    let rowTotal = 0;
+    table += `<tr><td>${escapeHtml(name)}</td>`;
+    days.forEach(d => {
+      const v = groups[name][d] || 0;
+      rowTotal += v; dayTotals[d] += v; grandTotal += v;
+      table += `<td>${opts.hideMainRowDayValues ? '' : (v ? v.toFixed(2) : '—')}</td>`;
+    });
+    table += `<td><strong>${rowTotal.toFixed(2)}</strong></td></tr>`;
+    if (opts.includeTacheBreakdown) {
+      Object.keys(byGroupTache[name] || {}).sort((a, b) => a.localeCompare(b)).forEach(tn => {
+        let subTotal = 0;
+        table += `<tr><td>↳ ${escapeHtml(tn)}</td>`;
+        days.forEach(d => { const v = byGroupTache[name][tn][d] || 0; subTotal += v; table += `<td>${v ? v.toFixed(2) : '—'}</td>`; });
+        table += `<td>${subTotal.toFixed(2)}</td></tr>`;
+      });
+    }
+  });
+  table += `</tbody><tfoot>`;
+  if (opts.includeTacheBreakdown) {
+    tacheNamesGlobal.forEach(tn => {
+      let rowTotalT = 0;
+      table += `<tr class="export-subtotal"><td>Sous-total — ${escapeHtml(tn)}</td>`;
+      days.forEach(d => { const v = byTacheGlobal[tn][d] || 0; rowTotalT += v; table += `<td>${v ? v.toFixed(2) : '—'}</td>`; });
+      table += `<td>${rowTotalT.toFixed(2)}</td></tr>`;
+    });
+  }
+  table += `<tr class="export-grand-total"><td>Total</td>${days.map(d => `<td>${dayTotals[d] ? dayTotals[d].toFixed(2) : '—'}</td>`).join('')}<td>${grandTotal.toFixed(2)} h</td></tr></tfoot></table>`;
+  return table;
+}
+// Regroupe les poinçons PAR JOUR et insère, avant chaque groupe, une ligne indiquant les 3
+// pauses gérées ce jour-là (portées par le poinçon ayant le plus d'heures travaillées — même
+// convention que saveDayGroupTenant), pour que le rapport PDF reflète clairement ce qui a été
+// approuvé.
+function buildExportDetailTableHtml(rows, counterpartLabel) {
+  const activeRows = rows.filter(p => p.status !== 'rejete');
+  const sorted = activeRows.slice().sort((a, b) => new Date(a.clockIn) - new Date(b.clockIn));
+  const dayGroups = {};
+  sorted.forEach(p => { const dk = torontoDateKeyClient(p.clockIn); (dayGroups[dk] = dayGroups[dk] || []).push(p); });
+  const DETAIL_COLSPAN = 9;
+
+  let html = `<table><thead><tr>
+    <th>Date</th><th>${counterpartLabel === 'projet' ? 'Employé' : 'Projet'}</th><th>Tâche</th><th>Début</th><th>Fin</th><th>Brut</th><th>Ajusté</th><th>KM</th><th>Statut</th>
+  </tr></thead><tbody>`;
+  let lastDate = null;
+  sorted.forEach(p => {
+    const dk = torontoDateKeyClient(p.clockIn);
+    if (dk !== lastDate) {
+      lastDate = dk;
+      const dayItems = dayGroups[dk];
+      let biggest = dayItems[0];
+      dayItems.forEach(it => { if ((Number(it.brutH) || 0) >= (Number(biggest.brutH) || 0)) biggest = it; });
+      const dayFinishMinutes = dayItems.reduce((max, it) => {
+        if (!it.clockOut) return max;
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(it.clockOut));
+        const h = Number(parts.find(x => x.type === 'hour').value), m = Number(parts.find(x => x.type === 'minute').value);
+        return Math.max(max, h * 60 + m);
+      }, 0);
+      const lunchApplicable = dayFinishMinutes >= 13 * 60;
+      const afternoonApplicable = dayFinishMinutes >= 14 * 60;
+      const pauseParts = [`Pause matin : ${biggest.breakMorning ? 'prise ✔' : 'non prise ✘'}`];
+      if (lunchApplicable) pauseParts.push(`Dîner : ${biggest.breakLunch ? 'pris ✔' : 'non pris ✘'}`);
+      if (afternoonApplicable) pauseParts.push(`Pause PM : ${biggest.breakAfternoon ? 'prise ✔' : 'non prise ✘'}`);
+      html += `<tr class="export-day-sep"><td colspan="${DETAIL_COLSPAN}"><strong>${fmtDaySepLabel(dk)}</strong> — ${pauseParts.join(' &nbsp;·&nbsp; ')}</td></tr>`;
+    }
+    const counterpart = counterpartLabel === 'projet' ? p.employeeName : (p.projectName || '—');
+    html += `<tr>
+      <td>${pwFmtDate(p.clockIn)}</td><td>${escapeHtml(counterpart || '—')}</td><td>${escapeHtml(p.tache || '—')}</td>
+      <td>${pwFmtTime(p.clockIn)}</td><td>${pwFmtTime(p.clockOut)}</td>
+      <td>${p.brutH != null ? p.brutH : '—'}</td><td>${p.ajusteH != null ? p.ajusteH : '—'}</td><td>${p.kmTraveled != null ? p.kmTraveled : '—'}</td>
+      <td>${pwStatusLabel(p.status)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  return html;
+}
+async function exportEntityPDF(opts) {
+  if (!exportLibsLoaded) { try { await ensureExportLibs(); } catch (e) { /* on tente quand même — le message ci-dessous s'affichera si ça manque toujours */ } }
+  if (typeof window.html2canvas !== 'function' || !window.jspdf) {
+    showToast("Bibliothèque d'export PDF non chargée. Vérifiez votre connexion internet et réessayez.");
+    return;
+  }
+  const s = (configCache && configCache.settings) || {};
+  const container = document.createElement('div');
+  container.id = 'export-container';
+  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;background:#fff;padding:24px;font-family:Arial,sans-serif;color:#1c1f26;';
+  const companyHeaderHtml = (s.companyName || s.companyAddress || s.companyLogo) ? `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
+      ${s.companyLogo ? `<img src="${s.companyLogo}" style="max-height:55px;max-width:160px;object-fit:contain;">` : ''}
+      <div>
+        ${s.companyName ? `<div style="font-size:14px;font-weight:700;">${escapeHtml(s.companyName)}</div>` : ''}
+        ${s.companyAddress ? `<div style="font-size:11px;color:#6b7080;">${escapeHtml(s.companyAddress)}</div>` : ''}
+      </div>
+    </div>` : '';
+  container.innerHTML = `
+    <style>
+      #export-container table { border-collapse:collapse; width:100%; margin-bottom:20px; }
+      #export-container th, #export-container td { border:1px solid #e2e4ea; padding:5px 8px; font-size:11px; text-align:left; }
+      #export-container th { background:#fafafa; }
+      #export-container tr.export-subtotal td { font-weight:700; background:#e8edff; color:#2547cc; }
+      #export-container tr.export-grand-total td { font-weight:700; background:#2547cc; color:#ffffff; }
+      #export-container tr.export-day-sep td { background:#f4f5f7; font-size:10.5px; color:#3d4148; }
+    </style>
+    ${companyHeaderHtml}
+    <div style="text-align:center;font-size:22px;font-weight:800;margin:2px 0 16px;">Rapport de temps</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:2px;">${escapeHtml(opts.title)}</div>
+    <div style="font-size:12px;color:#6b7080;margin-bottom:16px;">${escapeHtml(opts.subtitle)}</div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:6px;">Sommaire</div>
+    ${buildExportSummaryTableHtml(opts.rows, opts.days, opts.groupField, opts.counterpartLabel, { hideMainRowDayValues: opts.hideMainRowDayValues, includeTacheBreakdown: opts.includeTacheBreakdown })}
+    <div style="font-size:14px;font-weight:700;margin:16px 0 6px;">Détail des poinçons</div>
+    ${buildExportDetailTableHtml(opts.rows, opts.counterpartLabel)}
+  `;
+  document.body.appendChild(container);
+  try {
+    const canvas = await window.html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const imgW = pageWidth - margin * 2;
+    const imgH = canvas.height * (imgW / canvas.width);
+    const usableH = pageHeight - margin * 2;
+    const imgData = canvas.toDataURL('image/png');
+    let heightLeft = imgH;
+    let position = margin;
+    pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+    heightLeft -= usableH;
+    while (heightLeft > 0) {
+      position = margin - (imgH - heightLeft);
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+      heightLeft -= usableH;
+    }
+    pdf.save(opts.filename);
+  } catch (err) {
+    showToast('Erreur export PDF: ' + err.message);
+  } finally {
+    container.remove();
+  }
+}
+
+async function runPwExport() {
+  const btn = document.getElementById('pw-export-btn');
+  const el = document.getElementById('pw-export-result');
+  btn.disabled = true;
+  el.innerHTML = '<div class="empty-state">Génération…</div>';
+  try {
+    const data = await callApi('punchesAdmin', 'exportPayroll', { weekStart: pwWeekStart });
+    const rows = data.summary || [];
+    const tableHtml = rows.length
+      ? `<table><thead><tr><th>Employé</th><th>N° employé</th><th>Heures régulières</th><th>1.5x</th><th>2x</th><th>Prime</th></tr></thead><tbody>${
+          rows.map(r => `<tr><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(r.employeeNumber || '—')}</td><td>${r.regularH}</td><td>${r.overtime15H}</td><td>${r.overtime2H}</td><td>${r.prime ? 'Oui' : 'Non'}</td></tr>`).join('')
+        }</tbody></table>`
+      : '<div class="empty-state">Aucune donnée à exporter.</div>';
+    const blobUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(data.csv || '');
+    let html = `${tableHtml}<div style="margin-top:12px;"><a class="btn-primary" style="display:inline-block;text-decoration:none;" href="${blobUrl}" download="export-paie-${pwWeekStart}.csv">⬇ Télécharger le CSV</a>`;
+    // Fichier Avantage SDK (W08) — présent seulement si le logiciel de paie configuré (voir
+    // Configuration > Générale) est Avantage ; sinon le CSV générique ci-dessus reste le seul export.
+    if (data.avantageTxt) {
+      const txtUrl = 'data:text/plain;charset=utf-8,' + encodeURIComponent(data.avantageTxt);
+      html += ` <a class="btn-primary avantage-download" style="display:inline-block;text-decoration:none;" href="${txtUrl}" download="${escapeHtml(data.avantageFilename || 'export.txt')}">⬇ Télécharger le fichier Avantage (.TXT)</a>`;
+    }
+    html += `</div>`;
+    const w = data.warnings || {};
+    const warningBlocks = [];
+    if (w.missingEmployeeCode && w.missingEmployeeCode.length) warningBlocks.push(`<strong>Numéro d'employé Avantage manquant :</strong><ul class="warning-list">${w.missingEmployeeCode.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`);
+    if (w.missingProjectNumAvantage && w.missingProjectNumAvantage.length) warningBlocks.push(`<strong>N° de projet Avantage manquant :</strong><ul class="warning-list">${w.missingProjectNumAvantage.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`);
+    if (w.missingTacheCode && w.missingTacheCode.length) warningBlocks.push(`<strong>Code de tâche Avantage manquant :</strong><ul class="warning-list">${w.missingTacheCode.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`);
+    if (w.overtime && w.overtime.length) warningBlocks.push(`<strong>Anomalies temps supplémentaire :</strong><ul class="warning-list">${w.overtime.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`);
+    if (warningBlocks.length) html += `<div class="warning-banner" style="margin-top:12px;">⚠ ${warningBlocks.join('<br>')}</div>`;
+    el.innerHTML = html;
+    await loadPunchesWeek();
+    showToast('Export généré — poinçons marqués comme exportés.');
+  } catch (err) {
+    el.innerHTML = '<div class="empty-state">Erreur: ' + escapeHtml(err.message) + '</div>';
+  } finally { btn.disabled = false; }
+}
+
+document.getElementById('form-manual-punch').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const employeeId = document.getElementById('mp-employee').value;
+  const projectId = document.getElementById('mp-project').value;
+  const tache = document.getElementById('mp-tache').value;
+  const date = document.getElementById('mp-date').value;
+  const start = document.getElementById('mp-start').value;
+  const end = document.getElementById('mp-end').value;
+  if (!employeeId || !projectId || !date) { showToast('Employé, projet et date sont requis.'); return; }
+  if (!start && !end) { showToast('Au moins l\'une des deux heures (début ou fin) est requise.'); return; }
+  try {
+    await callApi('punchesAdmin', 'manualAdd', { employeeId, projectId, date, clockIn: start || undefined, clockOut: end || undefined, tache: tache || undefined });
+    e.target.reset();
+    showToast('Poinçon ajouté ✔');
+    await loadPunchesWeek();
+  } catch (err) { showToast('Erreur: ' + err.message); }
+});
+
+// ===================== Auth / démarrage =====================
+async function initApp() {
+  const meta = Clerk.user.publicMetadata || {};
+  const role = meta.role;
+  if ((role !== 'admin' && role !== 'lecture-seule') || !meta.tenantId || meta.tenantId === 'EPD') {
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Cette page est réservée aux administrateurs d\'une entreprise Exacto (hors EPD). Les comptes EPD utilisent admin.html.</div>';
+    return;
+  }
+  if (role === 'lecture-seule') { document.body.classList.add('role-readonly'); startReadOnlyEnforcement(); }
+  document.getElementById('clerk-signin').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const btnEl = document.getElementById('clerk-user-button');
+  Clerk.mountUserButton(btnEl, { appearance: { elements: { userButtonAvatarBox: { width: '28px', height: '28px' } } } });
+  const nameEl = document.getElementById('clerk-user-name');
+  if (nameEl) nameEl.textContent = Clerk.user.fullName || Clerk.user.firstName || (Clerk.user.primaryEmailAddress && Clerk.user.primaryEmailAddress.emailAddress) || '';
+  try {
+    await loadConfig();
+    await loadEmployees();
+    await loadProjects();
+    await initPunchesTab();
+  } catch (err) {
+    showToast('Erreur de chargement: ' + err.message);
+  }
+  // Le Tableau de bord ne doit JAMAIS empêcher le reste de l'app de charger — s'il échoue pour
+  // une raison quelconque (réseau, CDN, etc.), on l'affiche en erreur mais on continue.
+  try {
+    await loadDashboard();
+  } catch (err) {
+    const el = document.getElementById('dashboard-content');
+    if (el) el.innerHTML = `<div class="empty-state">Erreur de chargement du tableau de bord: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+let appStarted = false;
+async function boot() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` });
+  await loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY });
+  await loadExternalScript({ src: '/clerk-fr-fr.js' });
+  await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, localization: window.CLERK_LOCALIZATION_FR });
+  window.Clerk.addListener(({ user }) => { if (user && !appStarted) { appStarted = true; initApp(); } });
+  if (window.Clerk.user) { appStarted = true; initApp(); }
+  else { window.Clerk.mountSignIn(document.getElementById('clerk-signin'), { appearance: { elements: { rootBox: { width: '100%' }, card: { width: '100%' } } } }); }
+}
+boot();
+</script>
+</body>
+</html>
