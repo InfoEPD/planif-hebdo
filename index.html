@@ -7,9 +7,9 @@
 <link rel="icon" href="data:,">
 <style>
   :root {
-    --bg:#0d1b30; --panel:#142a4a; --panel-alt:#1b3255; --border:#2a4066;
-    --text:#eaf0fb; --text-secondary:#9db0d1;
-    --accent:#5b82ff; --accent-dark:#a9bdff;
+    --bg:#f3f5fa; --panel:#ffffff; --panel-alt:#f6f8ff; --border:#dbe1ee;
+    --text:#17223b; --text-secondary:#6a7691;
+    --accent:#2f5bea; --accent-dark:#2347c0;
   }
   * { box-sizing:border-box; }
   html, body { margin:0; padding:0; height:100%; }
@@ -28,7 +28,8 @@
     display:flex; flex-direction:column; align-items:center; gap:12px;
     transition:transform .15s ease, border-color .15s ease, background .15s ease;
   }
-  .card:hover { transform:translateY(-4px); border-color:var(--accent); background:var(--panel-alt); }
+  .card { box-shadow:0 1px 3px rgba(23,34,59,.06); }
+  .card:hover { box-shadow:0 8px 24px rgba(47,91,234,.12); transform:translateY(-4px); border-color:var(--accent); background:var(--panel-alt); }
   .card .icon { font-size:38px; line-height:1; }
   .card .label { font-size:16px; font-weight:700; }
   .card .sub { font-size:12px; color:var(--text-secondary); }
@@ -41,26 +42,23 @@
   <h1>Choisissez votre application</h1>
   <div class="cards">
     <a class="card" href="/planif">
-      <span class="icon">🗓️</span>
       <span class="label">Exacto-Planif</span>
       <span class="sub">Planification chantier</span>
     </a>
     <a class="card" href="/punch">
-      <span class="icon">⏱️</span>
       <span class="label">Exacto-Punch</span>
       <span class="sub">Poinçon employé</span>
     </a>
     <a class="card desktop-only" href="https://finance.exactoapp.ca">
-      <span class="icon">💼</span>
       <span class="label">Exacto-Finance</span>
       <span class="sub">Gestion de projets</span>
     </a>
     <a class="card" href="/admin">
-      <span class="icon">🛠️</span>
-      <span class="label">Portail Admin</span>
-      <span class="sub">Administration poinçon</span>
+      <span class="label">Exacto-Heures</span>
+      <span class="sub">Gestion des feuilles de temps</span>
     </a>
   </div>
-  <footer>Entreprises Philippe Denis · <a href="politique-confidentialite.html" style="color:inherit;">Politique de confidentialité</a></footer>
+  <footer>Exacto - <span id="yr">2026</span> · <a href="politique-confidentialite.html" style="color:inherit;">Politique de confidentialité</a></footer>
+<script>document.getElementById("yr").textContent=new Date().getFullYear();</script>
 </body>
 </html>
