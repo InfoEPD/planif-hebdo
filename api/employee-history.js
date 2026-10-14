@@ -3,6 +3,7 @@
 // brut et ajusté par semaine). Nécessite un jeton de session employé (voir
 // api/punch.js action 'login' et api/_auth/employeeAuth.js) avec role === 'employee'.
 
+const { pbFetch } = require('./_lib/pb-store');
 const { verifyEmployeeToken } = require('./_auth/employeeAuth');
 
 const POINCONS_BOARD = 18427410930;
@@ -52,7 +53,7 @@ function fmtWeekLabel(monday) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Méthode non autorisée' }); return; }
 
-  const mondayToken = process.env.MONDAY_API_TOKEN;
+  const mondayToken = 'local';
   if (!mondayToken) { res.status(500).json({ error: 'Configuration serveur incomplète.' }); return; }
   const bearerToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   if (!bearerToken) { res.status(401).json({ error: 'Non authentifié.' }); return; }
@@ -78,7 +79,7 @@ module.exports = async function handler(req, res) {
   const employeeItemId = Number(meta.employeeItemId);
 
   try {
-    const r = await fetch('https://api.monday.com/v2', {
+    const r = await pbFetch('https://api.monday.com/v2', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': mondayToken, 'API-Version': '2023-10' },
       body: JSON.stringify({

@@ -50,6 +50,7 @@
 // 'settings'/'incidents'/'dataRequests' — voir isAdminRole/isAdminOrReadOnly plus bas). Les
 // comptes EMPLOYÉS (mobile) sont authentifiés via le jeton maison employeeAuth.js depuis
 // l'abandon de Clerk pour ce volet — voir verifyCaller() dans le handler.
+const { pbFetch } = require('./_lib/pb-store');
 const { verifyToken } = require('@clerk/backend');
 const { verifyEmployeeToken, hashPassword, verifyPassword, createEmployeeToken, toE164 } = require('./_auth/employeeAuth');
 // Utilisé par les actions Loi 25 (gpsConsentStatus/recordGpsConsent/myDataExport, et les
@@ -205,7 +206,7 @@ async function resolveEpdTenantId(db) {
 }
 
 async function mondayGraphQL(mondayToken, query, variables) {
-  const r = await fetch('https://api.monday.com/v2', {
+  const r = await pbFetch('https://api.monday.com/v2', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': mondayToken, 'API-Version': '2023-10' },
     body: JSON.stringify({ query, variables })
@@ -319,7 +320,7 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Méthode non autorisée' }); return; }
 
   const secretKey = process.env.CLERK_SECRET_KEY;
-  const mondayToken = process.env.MONDAY_API_TOKEN;
+  const mondayToken = 'local';
   if (!secretKey || !mondayToken) { res.status(500).json({ error: 'Configuration serveur incomplète.' }); return; }
 
   // Connexion employé (téléphone + mot de passe) — aucun jeton en entrée, voir plus haut.

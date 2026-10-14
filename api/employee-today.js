@@ -7,6 +7,7 @@
 // de l'item Monday employé>' } — authentification maison téléphone + mot de
 // passe, Clerk n'est plus utilisé pour ce fichier.
 
+const { pbFetch } = require('./_lib/pb-store');
 const { verifyEmployeeToken } = require('./_auth/employeeAuth');
 
 
@@ -69,7 +70,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const mondayToken = process.env.MONDAY_API_TOKEN;
+  const mondayToken = 'local';
   if (!mondayToken) {
     res.status(500).json({ error: 'Configuration serveur incomplète.' });
     return;
@@ -131,7 +132,7 @@ module.exports = async function handler(req, res) {
   `;
 
   try {
-    const r = await fetch('https://api.monday.com/v2', {
+    const r = await pbFetch('https://api.monday.com/v2', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': mondayToken, 'API-Version': '2023-10' },
       body: JSON.stringify({

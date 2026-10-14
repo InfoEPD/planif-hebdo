@@ -18,6 +18,7 @@
 //   setAccess      { clerkUserId, employeeItemId, enabled }
 //   deleteAccount  { clerkUserId, employeeItemId }
 
+const { pbFetch } = require('./_lib/pb-store');
 const { verifyToken } = require('@clerk/backend');
 const { eq } = require('drizzle-orm');
 const { getDb, schema } = require('./_db/client');
@@ -46,7 +47,7 @@ async function mondaySetEmployeeAccount(mondayToken, employeeItemId, { hasAccoun
     [COL_ACCESS]: { checked: enabled ? 'true' : 'false' }
   };
   if (phone !== undefined) columnValues[EMP_PHONE_COL] = phone;
-  const r = await fetch('https://api.monday.com/v2', {
+  const r = await pbFetch('https://api.monday.com/v2', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': mondayToken, 'API-Version': '2023-10' },
     body: JSON.stringify({
@@ -62,7 +63,7 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Méthode non autorisée' }); return; }
 
   const secretKey = process.env.CLERK_SECRET_KEY;
-  const mondayToken = process.env.MONDAY_API_TOKEN;
+  const mondayToken = 'local';
   if (!secretKey || !mondayToken) { res.status(500).json({ error: 'Configuration serveur incomplète.' }); return; }
   const bearerToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   if (!bearerToken) { res.status(401).json({ error: 'Non authentifié.' }); return; }

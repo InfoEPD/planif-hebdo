@@ -60,12 +60,6 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const mondayToken = process.env.MONDAY_API_TOKEN;
-  if (!mondayToken) {
-    res.status(500).json({ error: "MONDAY_API_TOKEN n'est pas configuré sur le serveur." });
-    return;
-  }
-
   const { query, variables } = req.body || {};
   if (!query) {
     res.status(400).json({ error: 'Requête GraphQL manquante.' });
@@ -84,11 +78,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const mondayRes = await fetch('https://api.monday.com/v2', {
+    const mondayRes = await require('./_lib/pb-store').pbFetch('https://api.monday.com/v2', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': mondayToken,
         'API-Version': '2023-10'
       },
       body: JSON.stringify({ query, variables })
