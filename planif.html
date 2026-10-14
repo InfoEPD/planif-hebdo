@@ -252,6 +252,12 @@
   #history-modal { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:222; }
   #history-modal.hidden { display:none; }
 
+  #abs-modal { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:223; }
+  #abs-modal.hidden { display:none; }
+  .abs-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:12.5px; }
+  .abs-row .spacer { flex:1; }
+  .abs-form { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+  .abs-form input, .abs-form select { border:1px solid var(--border); background:var(--panel-alt); color:var(--text); border-radius:6px; padding:5px 7px; font-size:12.5px; }
   #draft-modal { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:225; }
   #draft-modal.hidden { display:none; }
   #config-modal { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:230; }
@@ -371,6 +377,7 @@
           <div class="btn-col">
             <button id="btn-view-toggle" title="Basculer entre la vue par semaine (projets) et la vue par employé">👤 Vue par employé</button>
             <button id="btn-duplicate" title="Copier toutes les assignations de la semaine affichée vers la semaine suivante">⧉ Dupliquer → sem. suivante</button>
+            <button id="btn-absences" title="Ajouter ou retirer des absences (vacances, congés) — elles bloquent la planification de l'employé">🏖️ Absences</button>
             <button id="btn-history" title="Voir les changements récents de la semaine affichée et annuler le dernier au besoin">🕘 Historique des changements</button>
           </div>
           <div class="btn-col">
@@ -455,7 +462,7 @@
   </div>
 </div>
 <div id="toast"></div>
-<div id="overlay"><div class="overlay-spinner"></div><div class="overlay-text">Chargement des données Monday…</div></div>
+<div id="overlay"><div class="overlay-spinner"></div><div class="overlay-text">Chargement des données…</div></div>
 <div id="emp-addr-tooltip"></div>
 <div id="confirm-modal" class="hidden">
   <div class="confirm-box">
@@ -473,6 +480,22 @@
       <button id="suggest-close">✕</button>
     </div>
     <div id="suggest-body"></div>
+  </div>
+</div>
+<div id="abs-modal" class="hidden">
+  <div class="suggest-box" style="max-width:620px;">
+    <div class="suggest-header">
+      <h3>🏖️ Absences des employés</h3>
+      <button id="abs-close">✕</button>
+    </div>
+    <p style="font-size:12px; color:var(--text-secondary); margin:0;">Un employé absent ne peut pas être planifié pendant la période (comme avant avec les demandes « Traitée / Acceptée »).</p>
+    <div class="abs-form" id="abs-form">
+      <select id="abs-emp"></select>
+      <input type="date" id="abs-start"><input type="date" id="abs-end">
+      <input type="text" id="abs-note" placeholder="Note (facultatif)" style="width:150px">
+      <button type="button" id="abs-add" style="border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Ajouter</button>
+    </div>
+    <div id="abs-body"></div>
   </div>
 </div>
 <div id="history-modal" class="hidden">
@@ -608,128 +631,29 @@ async function getClerkToken() {
   return null;
 }
 
-async function mondayApi(query, variables) {
+// Toutes les données de Planif sont hébergées dans Neon (base Exacto) : un seul point d'entrée, /api/monday
+// (corps { planif: '<action>', ... }), qui vérifie la session Clerk et applique le rôle lecture seule côté serveur.
+async function planifApi(action, payload) {
   let res;
   try {
     const token = await getClerkToken();
     res = await fetch('/api/monday', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') },
-      body: JSON.stringify({ query, variables })
+      body: JSON.stringify(Object.assign({}, payload || {}, { planif: action }))
     });
   } catch (networkErr) {
     throw new Error("Impossible de joindre le serveur (" + networkErr.message + ")");
   }
+  let json = null;
+  try { json = await res.json(); } catch (e) { /* réponse non JSON */ }
   if (res.status === 401) {
-    // Ne PAS déconnecter automatiquement ici : ça causait une boucle de reconnexion infinie
-    // si la vérification échouait pour une autre raison (ex. CLERK_SECRET_KEY mal configuré).
-    // On affiche plutôt l'erreur exacte renvoyée par le serveur pour pouvoir diagnostiquer.
-    let detail = '';
-    try { detail = (await res.json()).error || ''; } catch (e) {}
-    throw new Error('Non authentifié auprès du serveur' + (detail ? (' — ' + detail) : '') + '.');
+    // Ne PAS déconnecter automatiquement ici (boucle de reconnexion infinie possible) : on affiche l'erreur exacte.
+    throw new Error('Non authentifié auprès du serveur' + (json && json.error ? (' — ' + json.error) : '') + '.');
   }
-  let json;
-  try { json = await res.json(); } catch (e) { throw new Error('Réponse invalide du serveur (HTTP ' + res.status + ')'); }
-  if (!res.ok) {
-    throw new Error(json.error || ('Erreur serveur (HTTP ' + res.status + ')'));
-  }
-  if (json.errors && json.errors.length) {
-    const msg = json.errors.map(e => e.message).join('; ');
-    console.error('monday API error', msg, json.errors);
-    throw new Error(msg);
-  }
-  return json.data;
-}
-
-// Fragment générique réutilisé pour lire n'importe quel type de colonne :
-// - text/value couvrent la quasi-totalité des types (texte, statut, date, long_text, numérique...)
-// - le fragment typé BoardRelationValue donne les items liés AVEC leur board d'origine,
-//   ce qui est nécessaire pour désambiguïser les colonnes "connect boards" reliées à plusieurs tableaux.
-const COLVAL_FRAGMENT = `id text value ... on BoardRelationValue { linked_items { id name board { id } } }`;
-
-async function fetchAllItems(boardId, { columnIds = [], rules = null, limit = 500 } = {}) {
-  const query = `
-    query ($boardId: [ID!], $limit: Int, $cursor: String, $columnIds: [String!], $queryParams: ItemsQuery) {
-      boards(ids: $boardId) {
-        items_page(limit: $limit, cursor: $cursor, query_params: $queryParams) {
-          cursor
-          items {
-            id
-            name
-            created_at
-            column_values(ids: $columnIds) { ${COLVAL_FRAGMENT} }
-          }
-        }
-      }
-    }`;
-  let all = [];
-  let cursor = null;
-  let first = true;
-  do {
-    const variables = {
-      boardId: [String(boardId)],
-      limit,
-      cursor,
-      columnIds,
-      queryParams: first && rules ? { rules } : null
-    };
-    const data = await mondayApi(query, variables);
-    const page = data.boards[0].items_page;
-    all = all.concat(page.items);
-    cursor = page.cursor;
-    first = false;
-  } while (cursor);
-  return all;
-}
-
-async function fetchItemsByIds(ids, columnIds) {
-  if (!ids.length) return [];
-  // L'API Monday limite le nombre d'ids par requête "items(ids: ...)" à 100 — on découpe donc
-  // en lots de 100 et on les récupère en parallèle avant de tout fusionner.
-  const query = `
-    query ($ids: [ID!], $columnIds: [String!]) {
-      items(ids: $ids) { id column_values(ids: $columnIds) { ${COLVAL_FRAGMENT} } }
-    }`;
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
-  const results = new Array(chunks.length);
-  await runWithConcurrency(chunks.map((chunk, idx) => ({ chunk, idx })), 5, async ({ chunk, idx }) => {
-    const data = await mondayApi(query, { ids: chunk, columnIds });
-    results[idx] = data.items || [];
-  });
-  return results.flat();
-}
-
-// Convertit le tableau column_values renvoyé par l'API en objet indexé par id de colonne,
-// avec .text (texte affiché), .value (JSON brut) et .linked (items liés normalisés {id,name,board}).
-function cvIndex(item) {
-  const map = {};
-  (item.column_values || []).forEach(cv => {
-    map[cv.id] = {
-      text: cv.text,
-      value: cv.value,
-      linked: (cv.linked_items || []).map(li => ({ id: String(li.id), name: li.name, board: li.board ? { id: String(li.board.id) } : null }))
-    };
-  });
-  return map;
-}
-
-async function mondayCreateItem(boardId, name, columnValues) {
-  const query = `mutation ($boardId: ID!, $name: String!, $columnValues: JSON) {
-    create_item(board_id: $boardId, item_name: $name, column_values: $columnValues) { id }
-  }`;
-  const data = await mondayApi(query, { boardId: String(boardId), name, columnValues: JSON.stringify(columnValues) });
-  return String(data.create_item.id);
-}
-async function mondayChangeColumns(boardId, itemId, columnValues) {
-  const query = `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-    change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
-  }`;
-  await mondayApi(query, { boardId: String(boardId), itemId: String(itemId), columnValues: JSON.stringify(columnValues) });
-}
-async function mondayDeleteItem(itemId) {
-  const query = `mutation ($itemId: ID!) { delete_item(item_id: $itemId) { id } }`;
-  await mondayApi(query, { itemId: String(itemId) });
+  if (!json) throw new Error('Réponse invalide du serveur (HTTP ' + res.status + ')');
+  if (!res.ok) throw new Error(json.error || ('Erreur serveur (HTTP ' + res.status + ')'));
+  return json;
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -743,90 +667,13 @@ async function runWithConcurrency(items, limit, worker) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, next));
 }
 
-const EMPLOYEES_BOARD = 8371777574;
-const PROJECTS_BOARD = 8371776057;
-const PLANNING_BOARD = 18426416285;
-const ABSENCES_BOARD = 9761392463;
-const HOLIDAYS_BOARD = 18426426760;
-
-// Board "⚙️ Réglages - Planification chantier" — item unique contenant les réglages globaux
-// (heures par défaut + affichage fin de semaine). Ne pas créer d'autres items sur ce board.
-const SETTINGS_BOARD = 18431141848;
-const SETTINGS_ITEM_ID = 13050085592;
-const SETTINGS_DEFAULT_START_COL = 'text_mm77rg7d'; // Heure début par défaut (HH:MM)
-const SETTINGS_DEFAULT_END_COL = 'text_mm77fh43'; // Heure fin par défaut (HH:MM)
-const SETTINGS_SHOW_WEEKEND_COL = 'boolean_mm77zwe2'; // Afficher fin de semaine (Samedi/Dimanche)
-// Macro Projets: surcharge heure début/fin propre à un projet (HH:MM). Vide = valeur par défaut.
-const PROJECT_START_COL = 'text_mm77bd2w';
-const PROJECT_END_COL = 'text_mm77x1p4';
-
-const COL_PROJET = 'board_relation_mm66kzga';
-const COL_DATE = 'date_mm66w0ga';
-const COL_MENUISIERS = 'board_relation_mm66fec0';
-// Colonne texte long (JSON { employeId: horodatageISO }) : moment où CHAQUE employé a été affecté à
-// cette case. Sert à définir le 1er/2e chantier de la journée d'un employé (le plus ancien = 1er),
-// au lieu de se baser sur la date de création de la case (qui reflète le 1er employé affecté, pas
-// celui-ci). Inverser 1/2 = échanger les horodatages. Retombe sur created_at si absent (anciennes cases).
-const COL_ORDER = 'long_text_mm7x7kfh';
-
-const LABOR_COL = 'color_mm665ms5'; // Macro Projets: "Main-d'œuvre requise"
-const LABOR_ACTIVE_LABEL = 'Active';
-const LABOR_INACTIVE_LABEL = "Inactive (M.O. terminée)";
-const LABOR_WEEK_COL = 'long_text_mm68af4'; // Macro Projets: surcharge hebdo de "Main-d'œuvre requise" (JSON par semaine)
-const COMMENT_COL = 'long_text_mm66vhva'; // Macro Projets: "Commentaire planification"
-const PROJECT_STAGE_COL = 'status3'; // Macro Projets: "Étape du projet"
-const REQUIRED_COL = 'numeric_mm6b3ge0'; // Macro Projets: "Nombre menuisier requis" (valeur par défaut)
-const REQUIRED_WEEK_COL = 'long_text_mm6bk6h9'; // Macro Projets: surcharge hebdo de "Nombre menuisier requis" (JSON par semaine)
 const PROJECT_STAGE_EN_COURS = 'Projet en cours';
 const PROJECT_STAGE_TERMINE = 'Projet terminé';
 const PROJECT_STAGE_ATTENTE = 'Attente de libération';
 const PROJECT_STAGE_PLANIFICATION = 'En planification (Tâches administratives)';
+// Données hébergées dans Neon (voir api/_lib/planif-db.js) — plus aucun board Monday.
 
-const ABS_EMP_COL = 'board_relation_mkw51g49';
-const ABS_STATUS_COL = 'color_mkw51e15';
-const ABS_RANGE_COL = 'timerange_mkzj1td5';
-const ABS_BLOCKING_IDS = [1, 2]; // "Traitée", "Acceptée 📱"
 
-const HOLIDAY_DATE_COL = 'date_mm66qb31';
-
-const PROJ_ADDR_COL = 'lieu__1'; // Adresse du projet (Macro Projets)
-const EMP_ADDR_COL = 'lieu_mkmxm4z'; // Adresse complète (Employés)
-const EMP_EMAIL_PRO_COL = 'email_mkptcywy'; // Courriel professionnel (Employés)
-const EMP_EMAIL_PERSO_COL = 'e_mail_mkmxrm05'; // Courriel personnel (Employés)
-const EMP_PHONE_COL = 't_l_phone_mkmx24h2'; // # Téléphone (Employés)
-
-const SCHEDULE_LOG_BOARD = 18426682285; // 📧 Historique horaire envoyé - Planification chantier
-const SCHEDULE_LOG_WEEK_COL = 'text_mm68dngj';
-const SCHEDULE_LOG_SNAPSHOT_COL = 'long_text_mm688z1z';
-const SCHEDULE_LOG_SENT_DATE_COL = 'date_mm68m1zc';
-// L'instantané JSON (voir buildCellSnapshot) peut largement dépasser la limite de 2000
-// caractères d'une seule colonne long_text (plusieurs projets × 5 jours × employés) — ce qui,
-// avant ce correctif, tronquait silencieusement le JSON en écriture et le rendait invalide en
-// lecture (JSON.parse échouait, snapshot retombait à {}), faisant croire à "Envoyer
-// modifications" que TOUT le monde était nouvellement assigné. On découpe donc le JSON sur
-// SCHEDULE_LOG_SNAPSHOT_COL + ces 14 colonnes additionnelles (15 segments au total, ~28 500
-// caractères de capacité) — voir chunkSnapshotJson()/loadWeekSendRecord()/saveWeekSendRecord().
-const SCHEDULE_LOG_SNAPSHOT_COLS = [
-  SCHEDULE_LOG_SNAPSHOT_COL, 'long_text_mm6j2hbv', 'long_text_mm6jg2ny', 'long_text_mm6j7qrd',
-  'long_text_mm6j44b9', 'long_text_mm6jdgqt', 'long_text_mm6jdafy', 'long_text_mm6j3ae',
-  'long_text_mm6j1m6x', 'long_text_mm6jqn1k', 'long_text_mm6j45w4', 'long_text_mm6j63kh',
-  'long_text_mm6jfxaq', 'long_text_mm6jng3z', 'long_text_mm6jvt1j'
-];
-const SCHEDULE_LOG_CHUNK_SIZE = 1900;
-
-// 📜 Historique des changements — un item par opération effectuée dans l'horaire (ajout/retrait/
-// déplacement d'employé, jour férié). Remplace l'ancien bouton "Annuler dernière action" (qui ne
-// gardait qu'un seul niveau d'annulation en mémoire, perdu au rafraîchissement de la page) par un
-// vrai journal persistant, visible par tous, avec utilisateur et date/heure — voir logHistoryEntry()/
-// endOp()/openHistoryModal(). Le "Diff JSON" stocké par entrée est volontairement minimal (juste
-// les ajouts/retraits d'employé par case + fériés togglés, pas un instantané complet) : il suffit à
-// rejouer l'inverse pour annuler, et reste petit même pour de grosses opérations (dupliquer semaine,
-// effacer semaine...).
-const HISTORY_BOARD = 18428465325; // 📜 Historique des changements - Planification chantier
-const HISTORY_SEMAINE_COL = 'text_mm6m9xvr';
-const HISTORY_DESC_COL = 'long_text_mm6m7c46';
-const HISTORY_USER_COL = 'text_mm6mgxh';
-const HISTORY_DIFF_COL = 'long_text_mm6msgtd';
 
 const FAR_KM_ORANGE_MIN = 65;  // 65-89km : orange
 const FAR_KM_RED_MIN = 90;     // 90-99km : rouge
@@ -839,29 +686,8 @@ function kmSeverityClass(km) {
   return '';
 }
 
-const DISTANCES_BOARD = 18426435716; // 🚗 Distances routières - Menuisiers
-const DIST_EMP_COL = 'text_mm66z9bc';
-const DIST_JSON_COL = 'long_text_mm668qje';
-const DIST_DATE_COL = 'date_mm66n8s0';
-
-const EQUIPMENT_BOARD = 8478346039; // 🚚 Équipement roulant
-const EQUIP_STATUS_COL = 'color_mm0vb825'; // État
-const EQUIP_STATUS_ACTIVE_INDEX = 1; // label "Actif"
-const EQUIP_EMP_COL = 'board_relation_mm0vnz4x'; // lien vers Employés
-
-const LIFT_BOARD = 8478280754; // 🏗️ Équipements de levage
-const LIFT_STATUS_COL = 'color_mm0cjm1n'; // Actif
-const LIFT_STATUS_ACTIVE_INDEX = 1; // label "Actif"
-const LIFT_EMP_COL = 'board_relation_mm0cqnyv'; // lien vers Employés
-
-const AVAIL_COLS = ['color_mm66n2nb','color_mm66ppya','color_mm66aw5r','color_mm66ewn6','color_mm66dtnc']; // Lun..Ven sur Employés
-const EMP_END_DATE_COL = 'date_mm0fqp9c'; // Employés: "Date de fin d'emploi"
-const LIFT_MARQUE_COL = 'marque_mkn4y57z'; // Équipements de levage: "Marque"
-const LIFT_MODELE_COL = 'texte4__1'; // Équipements de levage: "Modèle"
-const LIFT_ANNEE_COL = 'texte_mkn48v7m'; // Équipements de levage: "Année"
-
-const EMP_URL = id => `https://entreprisesphilippedenis.monday.com/boards/${EMPLOYEES_BOARD}/pulses/${id}`;
-const PROJ_URL = id => `https://entreprisesphilippedenis.monday.com/boards/${PROJECTS_BOARD}/pulses/${id}`;
+const EMP_URL = id => 'https://finance.exactoapp.ca/employes';
+const PROJ_URL = id => 'https://finance.exactoapp.ca/projets';
 // 7 entrées pour permettre l'affichage optionnel de la fin de semaine (voir state.settings.showWeekend
 // et currentWeekDatesFull) — tout le code qui n'utilise que les 5 premiers jours (Lundi-Vendredi,
 // comportement historique) n'est pas affecté puisqu'il n'indexe jamais au-delà de [4].
@@ -1048,117 +874,27 @@ const COMPETENCY_COLS = {
 };
 
 // statutValues: [1]=Actif, [2]=Inactif (colonne "Statut employés" sur le board Employés).
+// Employés planifiables : annuaire Exacto (fin_employee), filtré CÔTÉ SERVEUR sur Entreprise = EPD,
+// Département = Chantier et Statut = Actif (ou Inactif pour la section masquée). Le personnel de Bureau n'apparaît pas.
 async function loadEmployeesByStatus(statutValues) {
-  const rules = [
-    { column_id:'color_mkpfwcat', compare_value:[1], operator:'any_of' },
-    { column_id:'statut__1', compare_value:statutValues, operator:'any_of' },
-    { column_id:'statut_mkmxsdjs', compare_value:[0], operator:'any_of' }
-  ];
-  const competencyColIds = Object.values(COMPETENCY_COLS).map(c => c.id);
-  const items = await fetchAllItems(EMPLOYEES_BOARD, { columnIds:['statut_mkmx1x42', EMP_END_DATE_COL, EMP_EMAIL_PRO_COL, EMP_EMAIL_PERSO_COL, EMP_PHONE_COL, ...competencyColIds], rules, limit:200 });
-  return items.map(it => {
-    const cv = cvIndex(it);
-    const titre = (cv['statut_mkmx1x42'] && cv['statut_mkmx1x42'].text) || 'Autre';
-    const endDate = (cv[EMP_END_DATE_COL] && cv[EMP_END_DATE_COL].text) || null;
-    const emailPro = (cv[EMP_EMAIL_PRO_COL] && cv[EMP_EMAIL_PRO_COL].text) || '';
-    const emailPerso = (cv[EMP_EMAIL_PERSO_COL] && cv[EMP_EMAIL_PERSO_COL].text) || '';
-    const phone = (cv[EMP_PHONE_COL] && cv[EMP_PHONE_COL].text) || '';
-    const competencies = {};
-    Object.keys(COMPETENCY_COLS).forEach(key => {
-      competencies[key] = (cv[COMPETENCY_COLS[key].id] && cv[COMPETENCY_COLS[key].id].text) || '';
-    });
-    return { id: String(it.id), name: it.name, titre, cat: classify(titre), endDate, emailPro, emailPerso, phone, competencies };
-  }).sort((a,b)=> a.name.localeCompare(b.name));
+  const d = await getPlanifData();
+  return statutValues && statutValues[0] === 2 ? d.inactiveEmployees : d.employees;
 }
-async function loadEmployees() { return loadEmployeesByStatus([1]); }
-async function loadInactiveEmployees() { return loadEmployeesByStatus([2]); }
 
 // Tous les employés Actifs de EPD, Chantier ET Bureau confondus (contrairement à loadEmployees()
 // qui reste filtré "Chantier" pour ne pas perturber la planification/grille) — utilisé uniquement
 // pour la liste de destinataires du brouillon, afin de pouvoir aussi y inclure le personnel de
 // bureau (ex. chargés de projets).
 async function loadDraftRecipientCandidates() {
-  const rules = [
-    { column_id:'color_mkpfwcat', compare_value:[1], operator:'any_of' }, // Entreprise = EPD
-    { column_id:'statut__1', compare_value:[1], operator:'any_of' } // Statut employés = Actif
-  ];
-  const items = await fetchAllItems(EMPLOYEES_BOARD, { columnIds:['statut_mkmx1x42', EMP_EMAIL_PRO_COL, EMP_EMAIL_PERSO_COL], rules, limit:200 });
-  return items.map(it => {
-    const cv = cvIndex(it);
-    const titre = (cv['statut_mkmx1x42'] && cv['statut_mkmx1x42'].text) || 'Autre';
-    const emailPro = (cv[EMP_EMAIL_PRO_COL] && cv[EMP_EMAIL_PRO_COL].text) || '';
-    const emailPerso = (cv[EMP_EMAIL_PERSO_COL] && cv[EMP_EMAIL_PERSO_COL].text) || '';
-    return { id: String(it.id), name: it.name, titre, emailPro, emailPerso };
-  }).sort((a,b)=> a.name.localeCompare(b.name));
+  const r = await planifApi('draftCandidates');
+  return r.people || [];
 }
 
-async function loadProjects() {
-  // Étape du projet : 0 = "Projet en cours" (planification normale), 1 = "Projet terminé",
-  // 3 = "Attente de libération" — ces deux derniers alimentent la section "Projets terminés"
-  // (permet de planifier temporairement un menuisier pour régler des déficiences).
-  const rules = [{ column_id: PROJECT_STAGE_COL, compare_value:[0,1,3,4], operator:'any_of' }];
-  const columnIds = ['text','people5','board_relation_mknr357t','lieu__1', LABOR_COL, LABOR_WEEK_COL, COMMENT_COL, PROJECT_STAGE_COL, REQUIRED_COL, REQUIRED_WEEK_COL, PROJECT_START_COL, PROJECT_END_COL];
-  const items = await fetchAllItems(PROJECTS_BOARD, { columnIds, rules, limit:200 });
-  return items.map(it => {
-    const cv = cvIndex(it);
-    const responsable = (cv['people5'] && cv['people5'].text) || '';
-    // Commentaire stocké en JSON, une entrée par semaine (clé = lundi ISO de la semaine).
-    // "__default__" sert de valeur de repli pour un ancien commentaire en texte brut
-    // (pré-migration) tant qu'aucune semaine spécifique n'a encore été éditée.
-    const commentRaw = (cv[COMMENT_COL] && cv[COMMENT_COL].text) || '';
-    let commentsByWeek = {};
-    if (commentRaw) {
-      try {
-        const parsed = JSON.parse(commentRaw);
-        commentsByWeek = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : { __default__: commentRaw };
-      } catch (e) {
-        commentsByWeek = { __default__: commentRaw };
-      }
-    }
-    // Surcharge "sans besoin de main-d'œuvre" par semaine (clé = lundi ISO). Une semaine absente
-    // de cet objet retombe sur la valeur globale laborActive (colonne Monday classique).
-    const laborWeekRaw = (cv[LABOR_WEEK_COL] && cv[LABOR_WEEK_COL].text) || '';
-    let laborByWeek = {};
-    if (laborWeekRaw) {
-      try {
-        const parsed = JSON.parse(laborWeekRaw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) laborByWeek = parsed;
-      } catch (e) { /* JSON invalide, ignoré */ }
-    }
-    // Surcharge du "Nombre menuisier requis" par semaine (clé = lundi ISO). Une semaine absente
-    // de cet objet retombe sur la valeur par défaut (colonne REQUIRED_COL).
-    const requiredWeekRaw = (cv[REQUIRED_WEEK_COL] && cv[REQUIRED_WEEK_COL].text) || '';
-    let requiredByWeek = {};
-    if (requiredWeekRaw) {
-      try {
-        const parsed = JSON.parse(requiredWeekRaw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) requiredByWeek = parsed;
-      } catch (e) { /* JSON invalide, ignoré */ }
-    }
-    return {
-      id: String(it.id),
-      name: it.name,
-      numero: (cv['text'] && cv['text'].text) || '',
-      responsable,
-      charge: responsable.split(',')[0].trim(),
-      contremaitre: ((cv['board_relation_mknr357t'] && cv['board_relation_mknr357t'].linked) || []).map(x=>x.name).join(', '),
-      adresse: (cv['lieu__1'] && cv['lieu__1'].text) || '',
-      etape: (cv[PROJECT_STAGE_COL] && cv[PROJECT_STAGE_COL].text) || '',
-      laborActive: (cv[LABOR_COL] ? cv[LABOR_COL].text : null) !== LABOR_INACTIVE_LABEL,
-      requiredCountDefault: Number((cv[REQUIRED_COL] && cv[REQUIRED_COL].text) || 0) || 0,
-      requiredByWeek,
-      laborByWeek,
-      commentsByWeek,
-      heureDebut: ((cv[PROJECT_START_COL] && cv[PROJECT_START_COL].text) || '').trim(),
-      heureFin: ((cv[PROJECT_END_COL] && cv[PROJECT_END_COL].text) || '').trim()
-    };
-  }).sort((a,b)=> a.name.localeCompare(b.name));
-}
 // Statut effectif "besoin de main-d'œuvre" pour un projet, pour une semaine donnée (clé = lundi ISO).
 // Une surcharge spécifique à cette semaine (laborByWeek) prévaut toujours sur la valeur par défaut —
 // masquer/réactiver un projet pour une semaine n'affecte donc jamais les autres semaines.
 // Par défaut (aucune surcharge cette semaine) :
-//  - un "Projet en cours" est actif (repli sur la colonne Monday globale LABOR_COL) ;
+//  - un "Projet en cours" est actif (repli sur la valeur globale du projet) ;
 //  - un "Projet terminé" / "Attente de libération" est MASQUÉ — il n'apparaît dans la grille
 //    principale que s'il a été explicitement réactivé pour cette semaine précise (jamais par défaut).
 function isProjectActiveForWeek(p, weekKey) {
@@ -1207,42 +943,7 @@ function projectMatchesFilter(p, pfilter) {
   return p.name.toLowerCase().includes(pfilter) || p.numero.toLowerCase().includes(pfilter) || (p.charge && p.charge.toLowerCase().includes(pfilter)) || (p.responsable && p.responsable.toLowerCase().includes(pfilter));
 }
 
-async function loadPlanningCells() {
-  const items = await fetchAllItems(PLANNING_BOARD, { columnIds:[COL_PROJET, COL_DATE, COL_MENUISIERS, COL_ORDER], limit:500 });
-  const cells = {};
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const projArr = (cv[COL_PROJET] && cv[COL_PROJET].linked) || [];
-    const empArr = (cv[COL_MENUISIERS] && cv[COL_MENUISIERS].linked) || [];
-    const dateVal = cv[COL_DATE] && cv[COL_DATE].text;
-    if (!projArr.length || !dateVal) return;
-    const key = `${projArr[0].id}|${dateVal}`;
-    let assignedAt = {};
-    try { const raw = cv[COL_ORDER] && cv[COL_ORDER].text; if (raw) assignedAt = JSON.parse(raw) || {}; } catch (e) { assignedAt = {}; }
-    // createdAt = repli pour les anciennes cases sans horodatage par employé (voir COL_ORDER).
-    cells[key] = { itemId: it.id, createdAt: it.created_at || '', assignedAt, employees: empArr.map(e=>({id:String(e.id), name:e.name})) };
-  });
-  return cells;
-}
 
-async function loadAbsences() {
-  const rules = [{ column_id: ABS_STATUS_COL, compare_value: ABS_BLOCKING_IDS, operator:'any_of' }];
-  const items = await fetchAllItems(ABSENCES_BOARD, { columnIds:[ABS_EMP_COL, ABS_STATUS_COL, ABS_RANGE_COL], rules, limit:500 });
-  const map = {};
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const empArr = (cv[ABS_EMP_COL] && cv[ABS_EMP_COL].linked) || [];
-    const link = empArr.find(e => e.board && String(e.board.id) === String(EMPLOYEES_BOARD));
-    if (!link) return;
-    const range = cv[ABS_RANGE_COL] && cv[ABS_RANGE_COL].text;
-    if (!range) return;
-    const parts = String(range).split(' - ');
-    if (parts.length !== 2) return;
-    const start = parts[0].trim(), end = parts[1].trim();
-    (map[String(link.id)] = map[String(link.id)] || []).push({ start, end });
-  });
-  return map;
-}
 
 function isPastEndDate(empId, dateStr) {
   const e = state.employees.find(x=>x.id===String(empId));
@@ -1294,42 +995,12 @@ function dayStatus(empId, dateStr) {
   return 'avail';
 }
 
-async function loadHolidays() {
-  const items = await fetchAllItems(HOLIDAYS_BOARD, { columnIds:[HOLIDAY_DATE_COL], limit:200 });
-  const map = {};
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const d = cv[HOLIDAY_DATE_COL] && cv[HOLIDAY_DATE_COL].text;
-    if (d) map[d] = it.id;
-  });
-  return map;
-}
 
 // Réglages globaux (board "⚙️ Réglages - Planification chantier", item unique). Retombe sur les
 // valeurs par défaut de state.settings si la lecture échoue (ex. réseau), pour ne jamais bloquer
 // le chargement de l'app.
-async function loadSettings() {
-  try {
-    const items = await fetchItemsByIds([SETTINGS_ITEM_ID], [SETTINGS_DEFAULT_START_COL, SETTINGS_DEFAULT_END_COL, SETTINGS_SHOW_WEEKEND_COL]);
-    const it = items[0];
-    if (!it) return { ...state.settings };
-    const cv = cvIndex(it);
-    return {
-      startDefault: ((cv[SETTINGS_DEFAULT_START_COL] && cv[SETTINGS_DEFAULT_START_COL].text) || '07:00').trim(),
-      endDefault: ((cv[SETTINGS_DEFAULT_END_COL] && cv[SETTINGS_DEFAULT_END_COL].text) || '15:30').trim(),
-      showWeekend: (cv[SETTINGS_SHOW_WEEKEND_COL] && cv[SETTINGS_SHOW_WEEKEND_COL].text) === 'v'
-    };
-  } catch (err) {
-    console.warn('Chargement des réglages échoué, valeurs par défaut utilisées.', err);
-    return { ...state.settings };
-  }
-}
 async function saveSettings(startDefault, endDefault, showWeekend) {
-  await mondayChangeColumns(SETTINGS_BOARD, SETTINGS_ITEM_ID, {
-    [SETTINGS_DEFAULT_START_COL]: startDefault,
-    [SETTINGS_DEFAULT_END_COL]: endDefault,
-    [SETTINGS_SHOW_WEEKEND_COL]: { checked: showWeekend ? 'true' : 'false' }
-  });
+  await planifApi('settingsSave', { startDefault, endDefault, showWeekend: !!showWeekend });
   state.settings = { startDefault, endDefault, showWeekend };
 }
 const HOUR_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1348,8 +1019,7 @@ async function saveProjectHours(projectId, field, value, inputEl) {
   if (v === current) return;
   if (!beginOp()) { if (inputEl) inputEl.value = current; return; }
   try {
-    const col = field === 'start' ? PROJECT_START_COL : PROJECT_END_COL;
-    await mondayChangeColumns(PROJECTS_BOARD, projectId, { [col]: v });
+    await planifApi('projectHours', { id: String(projectId), field, value: v });
     if (field === 'start') p.heureDebut = v; else p.heureFin = v;
     render();
   } catch (err) {
@@ -1358,24 +1028,6 @@ async function saveProjectHours(projectId, field, value, inputEl) {
   } finally { endOp(); }
 }
 
-async function loadCoords(boardId, ids, columnId) {
-  if (!ids.length) return { coords: {}, addresses: {} };
-  const items = await fetchItemsByIds(ids, [columnId]);
-  const coords = {};
-  const addresses = {};
-  items.forEach(it => {
-    const cv = (it.column_values || [])[0];
-    if (!cv) return;
-    if (cv.text) addresses[String(it.id)] = cv.text;
-    if (!cv.value) return;
-    try {
-      const v = JSON.parse(cv.value);
-      const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
-      if (!isNaN(lat) && !isNaN(lng)) coords[String(it.id)] = { lat, lng };
-    } catch (e) { /* pas de coordonnées valides */ }
-  });
-  return { coords, addresses };
-}
 function haversineKm(a, b) {
   if (!a || !b) return null;
   const R = 6371;
@@ -1386,54 +1038,8 @@ function haversineKm(a, b) {
   return Math.round(2 * R * Math.asin(Math.sqrt(h)));
 }
 
-async function loadRoadDistances() {
-  const items = await fetchAllItems(DISTANCES_BOARD, { columnIds:[DIST_EMP_COL, DIST_JSON_COL, DIST_DATE_COL], limit:100 });
-  const map = {};
-  let latestDate = null;
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const empId = cv[DIST_EMP_COL] && cv[DIST_EMP_COL].text;
-    if (!empId) return;
-    try {
-      map[empId] = JSON.parse((cv[DIST_JSON_COL] && cv[DIST_JSON_COL].text) || '{}');
-    } catch (e) { /* JSON invalide, ignorer */ }
-    const d = cv[DIST_DATE_COL] && cv[DIST_DATE_COL].text;
-    if (d && (!latestDate || d > latestDate)) latestDate = d;
-  });
-  return { map, latestDate };
-}
 
-async function loadEquipment() {
-  const rules = [{ column_id: EQUIP_STATUS_COL, compare_value: [EQUIP_STATUS_ACTIVE_INDEX], operator: 'any_of' }];
-  const items = await fetchAllItems(EQUIPMENT_BOARD, { columnIds:[EQUIP_STATUS_COL, EQUIP_EMP_COL], rules, limit:200 });
-  const map = {};
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const empArr = (cv[EQUIP_EMP_COL] && cv[EQUIP_EMP_COL].linked) || [];
-    empArr.forEach(e => { map[e.id] = (map[e.id] || 0) + 1; });
-  });
-  return map;
-}
 
-async function loadLiftEquipment() {
-  const rules = [{ column_id: LIFT_STATUS_COL, compare_value: [LIFT_STATUS_ACTIVE_INDEX], operator: 'any_of' }];
-  const items = await fetchAllItems(LIFT_BOARD, { columnIds:[LIFT_STATUS_COL, LIFT_EMP_COL, LIFT_MARQUE_COL, LIFT_MODELE_COL, LIFT_ANNEE_COL], rules, limit:200 });
-  const counts = {};
-  const marques = {};
-  items.forEach(it => {
-    const cv = cvIndex(it);
-    const empArr = (cv[LIFT_EMP_COL] && cv[LIFT_EMP_COL].linked) || [];
-    const marque = (cv[LIFT_MARQUE_COL] && cv[LIFT_MARQUE_COL].text) || '';
-    const modele = (cv[LIFT_MODELE_COL] && cv[LIFT_MODELE_COL].text) || '';
-    const annee = (cv[LIFT_ANNEE_COL] && cv[LIFT_ANNEE_COL].text) || '';
-    const label = ([marque, modele].filter(Boolean).join(' ') + (annee ? ` (${annee})` : '')).trim() || it.name || 'Équipement de levage';
-    empArr.forEach(e => {
-      counts[e.id] = (counts[e.id] || 0) + 1;
-      (marques[e.id] = marques[e.id] || []).push(label);
-    });
-  });
-  return { counts, marques };
-}
 
 // Distance réelle (routière, via OSRM) si disponible dans le cache Monday, sinon estimation à vol d'oiseau
 function getDistanceInfo(empId, projId) {
@@ -1445,82 +1051,85 @@ function getDistanceInfo(empId, projId) {
   return km !== null ? { km, real: false } : null;
 }
 
+// Charge toutes les données de Planif en UN appel (Neon) et distribue dans state.
+let _planifData = null;
+async function getPlanifData() { if (!_planifData) _planifData = await planifApi('load'); return _planifData; }
 async function loadAll() {
-  setOverlay(true, 'Chargement des données Monday…');
+  setOverlay(true, 'Chargement des données…');
   try {
-    const [employees, inactiveEmployees, projects, cells, absences, holidays, settings] = await Promise.all([
-      loadEmployees(), loadInactiveEmployees(), loadProjects(), loadPlanningCells(), loadAbsences(), loadHolidays(), loadSettings()
-    ]);
-    state.employees = employees;
-    state.inactiveEmployees = inactiveEmployees;
-    state.projects = projects;
-    state.cells = cells;
-    state.absences = absences;
-    state.holidays = holidays;
-    state.settings = settings;
-    const [projectCoordsRes, employeeCoordsRes, roadDist, equipmentByEmployee, liftData] = await Promise.all([
-      loadCoords(PROJECTS_BOARD, projects.map(p=>p.id), PROJ_ADDR_COL),
-      loadCoords(EMPLOYEES_BOARD, [...employees, ...inactiveEmployees].map(e=>e.id), EMP_ADDR_COL),
-      loadRoadDistances(),
-      loadEquipment(),
-      loadLiftEquipment()
-    ]);
-    state.projectCoords = projectCoordsRes.coords;
-    state.projectAddresses = projectCoordsRes.addresses;
-    state.employeeCoords = employeeCoordsRes.coords;
-    state.employeeAddresses = employeeCoordsRes.addresses;
-    state.roadDistances = roadDist.map;
-    state.roadDistancesDate = roadDist.latestDate;
-    state.equipmentByEmployee = equipmentByEmployee;
-    state.liftByEmployee = liftData.counts;
-    state.liftMarquesByEmployee = liftData.marques;
-    console.log(`Chargé: ${employees.length} menuisiers, ${projects.length} projets (${projects.filter(p=>!p.laborActive).length} inactifs), ${Object.keys(cells).length} cases assignées, absences pour ${Object.keys(absences).length} employé(s), ${Object.keys(holidays).length} jour(s) férié(s), coords ${Object.keys(state.projectCoords).length}/${projects.length} projets et ${Object.keys(state.employeeCoords).length}/${employees.length} employés, distances routières réelles pour ${Object.keys(roadDist.map).length} employé(s) (calculées le ${roadDist.latestDate||'?'}), ${Object.keys(equipmentByEmployee).length} employé(s) avec véhicule actif, ${Object.keys(liftData.counts).length} employé(s) avec équipement de levage actif.`);
+    _planifData = null;
+    const d = await getPlanifData();
+    state.employees = d.employees;
+    state.inactiveEmployees = d.inactiveEmployees;
+    state.projects = d.projects;
+    state.cells = d.cells;
+    state.absences = d.absences;
+    state.holidays = d.holidays;
+    state.settings = d.settings;
+    state.projectCoords = d.projectCoords;
+    state.projectAddresses = d.projectAddresses;
+    state.employeeCoords = d.employeeCoords;
+    state.employeeAddresses = d.employeeAddresses;
+    state.roadDistances = d.roadDistances;
+    state.roadDistancesDate = d.roadDistancesDate;
+    state.equipmentByEmployee = d.equipmentByEmployee;
+    state.liftByEmployee = d.liftByEmployee;
+    state.liftMarquesByEmployee = d.liftMarquesByEmployee;
+    console.log(`Chargé: ${d.employees.length} employés chantier, ${d.projects.length} projets, ${Object.keys(d.cells).length} cases assignées`);
+    maybeRefreshDistances();
   } catch (err) {
     showToast('Erreur de chargement: ' + err.message);
     console.error(err);
   } finally {
     setOverlay(false);
     render();
-    await syncAvailabilityPastilles();
     refreshModificationsButtonState();
   }
 }
+// Les distances routières (OSRM) sont recalculées automatiquement côté serveur lorsqu'elles ont plus de 7 jours
+// ou qu'il manque un employé / un projet géolocalisé. Silencieux : l'horaire reste utilisable (vol d'oiseau en attendant).
+let _distChecked = false;
+async function maybeRefreshDistances() {
+  if (_distChecked) return; _distChecked = true;
+  try {
+    const ageDays = state.roadDistancesDate ? (Date.now() - new Date(state.roadDistancesDate + 'T12:00:00').getTime()) / 86400000 : 999;
+    const missing = state.employees.some(e => state.employeeCoords[e.id] && !state.roadDistances[e.id]) ||
+      state.projects.some(p => state.projectCoords[p.id] && state.employees.some(e => state.roadDistances[e.id] && state.roadDistances[e.id][p.id] === undefined && state.employeeCoords[e.id]));
+    if (ageDays < 7 && !missing) return;
+    const r = await planifApi('distancesRefresh', {});
+    if (r && r.ok) {
+      const d = await planifApi('load'); _planifData = d;
+      state.roadDistances = d.roadDistances; state.roadDistancesDate = d.roadDistancesDate; render();
+    }
+  } catch (err) { console.warn('Recalcul des distances routières impossible', err); }
+}
 
 async function createPlanningItem(projectId, projectName, dateStr, employeeId, assignedAtMap) {
-  const columnValues = {
-    [COL_PROJET]: { item_ids:[Number(projectId)] },
-    [COL_DATE]: { date: dateStr },
-    [COL_MENUISIERS]: { item_ids:[Number(employeeId)] },
-    [COL_ORDER]: { text: JSON.stringify(assignedAtMap || {}) }
-  };
-  return await mondayCreateItem(PLANNING_BOARD, `${projectName} — ${dateStr}`, columnValues);
+  const r = await planifApi('cellCreate', { projectId: String(projectId), date: dateStr, employeeIds: [String(employeeId)], assignedAt: assignedAtMap || {} });
+  return String(r.id);
 }
 async function updateAssignmentEmployees(itemId, employeeIds, assignedAtMap) {
-  const cv = { [COL_MENUISIERS]: { item_ids: employeeIds.map(Number) } };
-  if (assignedAtMap) cv[COL_ORDER] = { text: JSON.stringify(assignedAtMap) };
-  await mondayChangeColumns(PLANNING_BOARD, itemId, cv);
+  await planifApi('cellUpdate', { id: String(itemId), employeeIds: employeeIds.map(String), assignedAt: assignedAtMap || null });
 }
 async function deletePlanningItem(itemId) {
-  await mondayDeleteItem(itemId);
+  await planifApi('cellDelete', { id: String(itemId) });
 }
 async function setProjectLabor(projectId, active) {
-  await mondayChangeColumns(PROJECTS_BOARD, projectId, { [LABOR_COL]: { label: active ? LABOR_ACTIVE_LABEL : LABOR_INACTIVE_LABEL } });
+  await planifApi('projectLabor', { id: String(projectId), active: !!active });
 }
 // Écrit la surcharge "besoin de main-d'œuvre" pour UNE semaine précise (clé = lundi ISO), sans
-// toucher à la colonne globale LABOR_COL — les autres semaines ne sont donc jamais affectées.
+// toucher à la valeur globale du projet — les autres semaines ne sont donc jamais affectées.
 async function setProjectLaborForWeek(projectId, weekKey, active) {
   const p = state.projects.find(x=>x.id===String(projectId));
   if (!p) return;
-  const updated = { ...(p.laborByWeek || {}), [weekKey]: active };
-  await mondayChangeColumns(PROJECTS_BOARD, projectId, { [LABOR_WEEK_COL]: { text: JSON.stringify(updated) } });
-  p.laborByWeek = updated;
+  await planifApi('projectWeekSet', { id: String(projectId), kind: 'labor', weekKey, value: !!active });
+  p.laborByWeek = { ...(p.laborByWeek || {}), [weekKey]: active };
 }
 async function saveProjectCommentRaw(projectId, weekKey, text) {
   const p = state.projects.find(x=>x.id===String(projectId));
   if (!p) return;
-  const updated = { ...(p.commentsByWeek || {}), [weekKey]: text };
-  await mondayChangeColumns(PROJECTS_BOARD, projectId, { [COMMENT_COL]: { text: JSON.stringify(updated) } });
-  p.commentsByWeek = updated;
+  await planifApi('projectWeekSet', { id: String(projectId), kind: 'comment', weekKey, value: text });
+  p.commentsByWeek = { ...(p.commentsByWeek || {}), [weekKey]: text };
 }
 async function saveProjectComment(projectId, weekKey, text, inputEl) {
   const p = state.projects.find(x=>x.id===String(projectId));
@@ -1538,9 +1147,8 @@ async function saveProjectComment(projectId, weekKey, text, inputEl) {
 async function saveProjectRequiredCountRaw(projectId, weekKey, n) {
   const p = state.projects.find(x=>x.id===String(projectId));
   if (!p) return;
-  const updated = { ...(p.requiredByWeek || {}), [weekKey]: n };
-  await mondayChangeColumns(PROJECTS_BOARD, projectId, { [REQUIRED_WEEK_COL]: { text: JSON.stringify(updated) } });
-  p.requiredByWeek = updated;
+  await planifApi('projectWeekSet', { id: String(projectId), kind: 'required', weekKey, value: n });
+  p.requiredByWeek = { ...(p.requiredByWeek || {}), [weekKey]: n };
 }
 // Nombre de menuisiers requis sur le chantier, propre à la semaine affichée (surcharge hebdo) —
 // sert à surligner en vert la case du jour quand l'effectif planifié atteint ce seuil.
@@ -1564,11 +1172,10 @@ async function saveProjectRequiredCount(projectId, weekKey, value, inputEl) {
 async function setHolidayRaw(dateStr, on) {
   if (on) {
     if (state.holidays[dateStr]) return;
-    const itemId = await mondayCreateItem(HOLIDAYS_BOARD, dateStr, { [HOLIDAY_DATE_COL]: { date: dateStr } });
-    state.holidays[dateStr] = itemId;
+    await planifApi('holidaySet', { date: dateStr, on: true });
+    state.holidays[dateStr] = dateStr;
   } else {
-    const itemId = state.holidays[dateStr];
-    if (itemId) await mondayDeleteItem(itemId);
+    if (state.holidays[dateStr]) await planifApi('holidaySet', { date: dateStr, on: false });
     delete state.holidays[dateStr];
   }
 }
@@ -1613,25 +1220,9 @@ async function toggleHoliday(dateStr, checked) {
 // de celles des autres — donc après une opération touchant un ou quelques employés précis, il est
 // inutile (et lent) de réécrire tout le monde. Passer un Set d'ids pour ne cibler qu'eux ; omettre
 // l'argument pour une resynchronisation complète (ex. chargement initial, changement de semaine).
-async function syncAvailabilityPastilles(employeeIds) {
-  try {
-    const dates = currentWeekDates().map(iso);
-    const targets = employeeIds ? state.employees.filter(e => employeeIds.has(String(e.id))) : state.employees;
-    if (!targets.length) return;
-    await runWithConcurrency(targets, 8, async (e) => {
-      const cv = {};
-      dates.forEach((ds, i) => {
-        const st = dayStatus(e.id, ds);
-        const label = st === 'absent' ? 'Absent' : (st === 'assigned' ? 'Assigné' : 'Disponible');
-        cv[AVAIL_COLS[i]] = { label };
-      });
-      await mondayChangeColumns(EMPLOYEES_BOARD, e.id, cv);
-    });
-    console.log('Pastilles de disponibilité synchronisées pour', dates.join(', '), `(${targets.length}/${state.employees.length} employé(s))`);
-  } catch (err) {
-    console.warn('Synchronisation des pastilles échouée', err);
-  }
-}
+// Les pastilles de disponibilité (Lun-Ven) n'étaient écrites que pour la vue Monday du board Employés : plus nécessaire,
+// la grille calcule ces statuts localement (dayStatus). Conservée en no-op pour les appelants existants.
+async function syncAvailabilityPastilles(employeeIds) { return; }
 
 function empInfo(id) {
   const e = state.employees.find(e=>e.id===String(id));
@@ -1681,8 +1272,8 @@ async function swapAssignmentOrder(empId, dateStr) {
     // Si les deux horodatages sont identiques (anciennes cases), on force une différence.
     if (tsA === tsB) { mapA[e] = new Date().toISOString(); mapB[e] = new Date(Date.now() - 1000).toISOString(); }
     await Promise.all([
-      mondayChangeColumns(PLANNING_BOARD, cellA.itemId, { [COL_ORDER]: { text: JSON.stringify(mapA) } }),
-      mondayChangeColumns(PLANNING_BOARD, cellB.itemId, { [COL_ORDER]: { text: JSON.stringify(mapB) } })
+      planifApi('cellAssignedAt', { id: String(cellA.itemId), assignedAt: mapA }),
+      planifApi('cellAssignedAt', { id: String(cellB.itemId), assignedAt: mapB })
     ]);
     cellA.assignedAt = mapA; cellB.assignedAt = mapB;
     render();
@@ -1891,7 +1482,7 @@ function currentUserLabel() {
 }
 // Appelée par endOp() après CHAQUE opération (beginOp/endOp) : compare l'instantané pris avant
 // l'opération à l'état actuel, et si quelque chose a réellement changé, journalise une entrée
-// dans le board "📜 Historique des changements" (voir HISTORY_BOARD). Ne bloque jamais l'opération
+// dans l'historique des changements (table planif_history). Ne bloque jamais l'opération
 // elle-même (appelée en fire-and-forget depuis endOp) — une erreur ici est seulement journalisée
 // dans la console, jamais montrée à l'utilisateur.
 async function logHistoryEntryIfChanged(snap) {
@@ -1901,12 +1492,7 @@ async function logHistoryEntryIfChanged(snap) {
   const description = describeDiff({ toRemove, toAdd, holidaysToMark, holidaysToUnmark });
   if (!description) return;
   const diffPayload = { toRemove, toAdd, holidaysToMark, holidaysToUnmark };
-  await mondayCreateItem(HISTORY_BOARD, description.split('\n')[0].slice(0, 250), {
-    [HISTORY_SEMAINE_COL]: snap.weekKey,
-    [HISTORY_DESC_COL]: { text: description },
-    [HISTORY_USER_COL]: currentUserLabel(),
-    [HISTORY_DIFF_COL]: { text: JSON.stringify(diffPayload) }
-  });
+  await planifApi('historyAdd', { weekKey: snap.weekKey, description, user: currentUserLabel(), diff: diffPayload });
 }
 // Rejoue l'inverse d'un diff persisté (toRemove/toAdd/holidaysToMark/holidaysToUnmark) pour
 // annuler l'entrée d'historique correspondante — même logique que l'ancien undoLastOperation,
@@ -1939,12 +1525,8 @@ async function openHistoryModal() {
   body.innerHTML = '<div class="suggest-empty">Chargement…</div>';
   document.getElementById('history-modal').classList.remove('hidden');
   try {
-    const items = await fetchAllItems(HISTORY_BOARD, {
-      columnIds: [HISTORY_DESC_COL, HISTORY_USER_COL, HISTORY_DIFF_COL],
-      rules: [{ column_id: HISTORY_SEMAINE_COL, compare_value: weekKey, operator: 'contains_text' }]
-    });
-    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    renderHistoryList(items);
+    const r = await planifApi('historyList', { weekKey });
+    renderHistoryList(r.items || []);
   } catch (err) {
     body.innerHTML = `<div class="suggest-empty">Erreur de chargement: ${err.message}</div>`;
   }
@@ -1953,10 +1535,8 @@ function renderHistoryList(items) {
   const body = document.getElementById('history-body');
   if (!items.length) { body.innerHTML = '<div class="suggest-empty">Aucun changement enregistré pour cette semaine.</div>'; return; }
   body.innerHTML = items.map((it, idx) => {
-    const cv = cvIndex(it);
-    const desc = ((cv[HISTORY_DESC_COL] && cv[HISTORY_DESC_COL].text) || '(description manquante)')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const user = (cv[HISTORY_USER_COL] && cv[HISTORY_USER_COL].text) || '—';
+    const desc = (it.description || '(description manquante)').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const user = (it.user || '—').replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const isLatest = idx === 0;
     return `<div class="history-item ${isLatest ? 'is-latest' : ''}">
       <div>
@@ -1974,11 +1554,9 @@ function renderHistoryList(items) {
 // journalisée comme une nouvelle entrée (voir endOp) — un second clic sur "Annuler" après coup
 // rejoue donc l'opération d'origine (redo), même patron que l'ancien undoLastOperation.
 async function undoHistoryEntry(itemId, entry) {
-  const cv = cvIndex(entry);
-  let diff;
-  try { diff = JSON.parse((cv[HISTORY_DIFF_COL] && cv[HISTORY_DIFF_COL].text) || '{}'); }
-  catch (e) { showToast('Données invalides pour annuler ce changement.'); return; }
-  const desc = (cv[HISTORY_DESC_COL] && cv[HISTORY_DESC_COL].text) || 'ce changement';
+  const diff = entry && entry.diff;
+  if (!diff || typeof diff !== 'object') { showToast('Données invalides pour annuler ce changement.'); return; }
+  const desc = (entry && entry.description) || 'ce changement';
   const ok = await askConfirm(`Annuler ce changement ?\n\n${desc}`);
   if (!ok) return;
   if (!beginOp()) return;
@@ -3557,48 +3135,22 @@ function buildCellSnapshot(dates) {
   return snapshot;
 }
 async function loadWeekSendRecord(weekKey) {
-  const items = await fetchAllItems(SCHEDULE_LOG_BOARD, {
-    columnIds: [SCHEDULE_LOG_WEEK_COL, ...SCHEDULE_LOG_SNAPSHOT_COLS, SCHEDULE_LOG_SENT_DATE_COL],
-    rules: [{ column_id: SCHEDULE_LOG_WEEK_COL, compare_value: weekKey, operator: 'contains_text' }],
-    limit: 10
-  });
-  const match = items.find(it => {
-    const cv = cvIndex(it);
-    return ((cv[SCHEDULE_LOG_WEEK_COL] && cv[SCHEDULE_LOG_WEEK_COL].text) || '') === weekKey;
-  });
-  if (!match) return null;
-  const cv = cvIndex(match);
+  const r = await planifApi('sendRecordGet', { weekKey });
+  const rec = r.record;
+  if (!rec) return null;
   let snapshot = {};
   let sentAtIso = null;
-  let corrupted = false;
-  // Le JSON est réparti sur SCHEDULE_LOG_SNAPSHOT_COLS (15 colonnes long_text de 2000 caractères
-  // chacune — voir la note près de SCHEDULE_LOG_SNAPSHOT_COLS) : on reconstitue en concaténant les
-  // segments dans l'ordre avant de parser.
-  const combined = SCHEDULE_LOG_SNAPSHOT_COLS.map(colId => (cv[colId] && cv[colId].text) || '').join('');
+  let corrupted = !!rec.corrupted;
   try {
-    const raw = JSON.parse(combined || '{}');
-    // Nouveau format : { s: snapshot, t: horodatage ISO complet (date+heure) }.
-    // Ancien format (avant l'ajout du timestamp précis) : le snapshot brut directement — on retombe
-    // alors sur la colonne "date" du board (sans heure) pour l'affichage.
-    if (raw && typeof raw === 'object' && raw.s && typeof raw.t === 'string') {
-      snapshot = raw.s;
-      sentAtIso = raw.t;
-    } else {
-      snapshot = raw;
-    }
+    const raw = JSON.parse(rec.payload || '{}');
+    // Nouveau format : { s: snapshot, t: horodatage ISO complet }. Ancien format : le snapshot brut directement.
+    if (raw && typeof raw === 'object' && raw.s && typeof raw.t === 'string') { snapshot = raw.s; sentAtIso = raw.t; }
+    else snapshot = raw;
   } catch (e) {
-    // JSON invalide (ex: ancien enregistrement tronqué à 2000 caractères, avant ce correctif) —
-    // on le signale plutôt que de retomber silencieusement sur un snapshot vide, ce qui ferait
-    // apparaître TOUS les employés comme "nouvellement assignés" dans "Envoyer modifications".
+    // JSON invalide : on le signale plutôt que de retomber sur un snapshot vide (tout le monde apparaîtrait "nouvellement assigné").
     corrupted = true;
   }
-  return {
-    itemId: match.id,
-    snapshot,
-    sentAtIso,
-    corrupted,
-    sentAt: (cv[SCHEDULE_LOG_SENT_DATE_COL] && cv[SCHEDULE_LOG_SENT_DATE_COL].text) || null
-  };
+  return { itemId: weekKey, snapshot, sentAtIso, corrupted, sentAt: rec.sentDate || null };
 }
 // Formate l'horodatage du dernier envoi ("Envoyer la semaine" ou "Envoyer modifications") pour cette
 // semaine, au format dd/mm/aaaa hh:mm. Retombe sur la date seule (sans heure) pour les anciens
@@ -3622,34 +3174,9 @@ function formatSentAtLabel(record) {
   }
   return null;
 }
-// Découpe le JSON de l'instantané sur SCHEDULE_LOG_SNAPSHOT_COLS (voir la note à sa définition).
-function chunkSnapshotJson(payloadJson) {
-  const chunks = {};
-  for (let i = 0; i < SCHEDULE_LOG_SNAPSHOT_COLS.length; i++) {
-    const start = i * SCHEDULE_LOG_CHUNK_SIZE;
-    chunks[SCHEDULE_LOG_SNAPSHOT_COLS[i]] = { text: payloadJson.slice(start, start + SCHEDULE_LOG_CHUNK_SIZE) };
-  }
-  return chunks;
-}
 async function saveWeekSendRecord(weekKey, snapshot, existingRecord) {
   const sentAtIso = new Date().toISOString();
-  const payloadJson = JSON.stringify({ s: snapshot, t: sentAtIso });
-  if (payloadJson.length > SCHEDULE_LOG_SNAPSHOT_COLS.length * SCHEDULE_LOG_CHUNK_SIZE) {
-    throw new Error("L'horaire de cette semaine est trop volumineux pour être enregistré (trop de projets/employés). Contactez le support.");
-  }
-  const snapshotCols = chunkSnapshotJson(payloadJson);
-  if (existingRecord) {
-    await mondayChangeColumns(SCHEDULE_LOG_BOARD, existingRecord.itemId, {
-      ...snapshotCols,
-      [SCHEDULE_LOG_SENT_DATE_COL]: { date: iso(new Date()) }
-    });
-  } else {
-    await mondayCreateItem(SCHEDULE_LOG_BOARD, weekKey, {
-      [SCHEDULE_LOG_WEEK_COL]: weekKey,
-      ...snapshotCols,
-      [SCHEDULE_LOG_SENT_DATE_COL]: { date: iso(new Date()) }
-    });
-  }
+  await planifApi('sendRecordSave', { weekKey, payload: JSON.stringify({ s: snapshot, t: sentAtIso }) });
 }
 // Compare deux instantanés et retourne la liste des cases (projet+jour) qui ont changé.
 function computeCellChanges(storedSnapshot, currentSnapshot) {
@@ -4185,6 +3712,37 @@ document.getElementById('btn-prev').addEventListener('click', () => { state.week
 document.getElementById('btn-next').addEventListener('click', () => { state.weekOffset++; render(); if (!state.busy) syncAvailabilityPastilles(); refreshModificationsButtonState(); });
 document.getElementById('btn-today').addEventListener('click', () => { state.weekOffset = 0; render(); if (!state.busy) syncAvailabilityPastilles(); refreshModificationsButtonState(); });
 document.getElementById('btn-duplicate').addEventListener('click', duplicateWeekToNext);
+
+// ----- Absences (Neon) : remplace les demandes d'absence « Traitée / Acceptée » du board Monday RH -----
+async function openAbsencesModal() {
+  const sel = document.getElementById('abs-emp');
+  sel.innerHTML = state.employees.concat(state.inactiveEmployees).map(e => `<option value="${e.id}">${e.name.replace(/</g,'&lt;')}</option>`).join('');
+  document.getElementById('abs-modal').classList.remove('hidden');
+  await refreshAbsencesList();
+}
+async function refreshAbsencesList() {
+  const body = document.getElementById('abs-body');
+  body.innerHTML = '<div class="suggest-empty">Chargement…</div>';
+  try {
+    const r = await planifApi('absenceList');
+    body.innerHTML = r.absences.length ? r.absences.map(a => `<div class="abs-row"><b>${a.name.replace(/</g,'&lt;')}</b><span>${a.start} → ${a.end}</span><span style="color:var(--text-secondary)">${(a.note||'').replace(/</g,'&lt;')}</span><span class="spacer"></span><button type="button" data-abs-del="${a.id}" class="history-undo-btn">Retirer</button></div>`).join('') : '<div class="suggest-empty">Aucune absence à venir.</div>';
+    body.querySelectorAll('[data-abs-del]').forEach(b => b.addEventListener('click', async () => {
+      try { await planifApi('absenceDelete', { id: b.dataset.absDel }); await reloadAbsences(); await refreshAbsencesList(); } catch (e) { showToast(e.message); }
+    }));
+  } catch (e) { body.innerHTML = `<div class="suggest-empty">Erreur: ${e.message}</div>`; }
+}
+async function reloadAbsences() { const d = await planifApi('load'); _planifData = d; state.absences = d.absences; render(); }
+document.getElementById('btn-absences').addEventListener('click', openAbsencesModal);
+document.getElementById('abs-close').addEventListener('click', () => document.getElementById('abs-modal').classList.add('hidden'));
+document.getElementById('abs-add').addEventListener('click', async () => {
+  const employeeId = document.getElementById('abs-emp').value, start = document.getElementById('abs-start').value, end = document.getElementById('abs-end').value;
+  if (!employeeId || !start || !end) { showToast('Choisissez un employé et les dates de début et de fin.', 'warning'); return; }
+  try {
+    await planifApi('absenceSave', { employeeId, start, end, note: document.getElementById('abs-note').value });
+    document.getElementById('abs-note').value = '';
+    await reloadAbsences(); await refreshAbsencesList(); showToast('Absence ajoutée.', false);
+  } catch (e) { showToast(e.message); }
+});
 document.getElementById('btn-history').addEventListener('click', openHistoryModal);
 document.getElementById('history-close').addEventListener('click', () => document.getElementById('history-modal').classList.add('hidden'));
 document.getElementById('btn-export').addEventListener('click', exportSchedulePDF);

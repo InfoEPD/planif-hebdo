@@ -9,21 +9,10 @@
 
 const { verifyEmployeeToken } = require('./_auth/employeeAuth');
 
-const PLANNING_BOARD = 18426416285;
-const COL_PROJET = 'board_relation_mm66kzga';
-const COL_DATE = 'date_mm66w0ga';
-const COL_MENUISIERS = 'board_relation_mm66fec0';
 
-const PROJECTS_BOARD = 8371776057;
-const PROJECT_STAGE_COL = 'status3';
-const PROJECT_ACTIVE_INDEX = 0; // "Projet en cours"
 // Coché = sur ce projet, l'employé ne peut poinçonner que des Tâches non-CCQ (voir Configuration
 // dans admin-poincon.html).
-const PROJECT_HORS_CCQ_COL = 'boolean_mm6eweyh';
 
-const DISTANCES_BOARD = 18426435716;
-const DIST_EMP_ID_COL = 'text_mm66z9bc';
-const DIST_JSON_COL = 'long_text_mm668qje';
 
 const EMPLOYEES_BOARD = 8371777574;
 const EMP_TITRE_COL = 'statut_mkmx1x42'; // "Titre d'emploi" — détermine le Métier de l'employé
@@ -112,17 +101,7 @@ module.exports = async function handler(req, res) {
   const weekDates = weekdayDates(today);
 
   const query = `
-    query($planningBoard: ID!, $week: [String]!, $projectsBoard: ID!, $stageCol: ID!, $stageVal: CompareValue!, $distBoard: ID!, $distCol: String!, $empId: [String]!, $empIds: [ID!], $metBoard: [ID!], $tachBoard: [ID!], $poinconsBoard: ID!, $pDateCol: String!, $pDate: [String]!) {
-      planningWeek: items_page_by_column_values(board_id: $planningBoard, columns: [{ column_id: "${COL_DATE}", column_values: $week }], limit: 500) {
-        items {
-          id
-          created_at
-          column_values(ids: ["${COL_PROJET}", "${COL_MENUISIERS}", "${COL_DATE}"]) {
-            id text
-            ... on BoardRelationValue { linked_item_ids linked_items { id name } }
-          }
-        }
-      }
+    query($empIds: [ID!], $metBoard: [ID!], $tachBoard: [ID!], $poinconsBoard: ID!, $pDateCol: String!, $pDate: [String]!) {
       poinconsToday: items_page_by_column_values(board_id: $poinconsBoard, columns: [{ column_id: $pDateCol, column_values: $pDate }], limit: 50) {
         items {
           id
@@ -132,14 +111,6 @@ module.exports = async function handler(req, res) {
             ... on HourValue { hour minute }
           }
         }
-      }
-      activeProjects: boards(ids: [$projectsBoard]) {
-        items_page(query_params: { rules: [{ column_id: $stageCol, compare_value: $stageVal, operator: any_of }] }, limit: 200) {
-          items { id name column_values(ids: ["${PROJECT_HORS_CCQ_COL}"]) { id text } }
-        }
-      }
-      distanceCache: items_page_by_column_values(board_id: $distBoard, columns: [{ column_id: $distCol, column_values: $empId }], limit: 1) {
-        items { id column_values(ids: ["${DIST_JSON_COL}"]) { text } }
       }
       moi: items(ids: $empIds) {
         id column_values(ids: ["${EMP_TITRE_COL}", "${EMP_APPROBATEUR_COL}"]) { id text }
@@ -166,9 +137,6 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify({
         query,
         variables: {
-          planningBoard: String(PLANNING_BOARD), week: weekDates,
-          projectsBoard: String(PROJECTS_BOARD), stageCol: PROJECT_STAGE_COL, stageVal: [PROJECT_ACTIVE_INDEX],
-          distBoard: String(DISTANCES_BOARD), distCol: DIST_EMP_ID_COL, empId: [employeeItemId],
           empIds: [employeeItemId], metBoard: [String(METIERS_BOARD)], tachBoard: [String(TACHES_BOARD)],
           poinconsBoard: String(POINCONS_BOARD), pDateCol: COL_P_DATE, pDate: [today]
         }
@@ -180,72 +148,36 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const weekItems = (data.data.planningWeek && data.data.planningWeek.items) || [];
+    // Planification, projets actifs et distances viennent de Neon (Exacto-Planif) — plus de board Monday.
+    const planifDb = require('./_lib/planif-db');
+    const [weekCells, activeList, distMap] = await Promise.all([
+      planifDb.cellsBetween(weekDates[0], weekDates[weekDates.length - 1]),
+      planifDb.activeProjectsLite(),
+      planifDb.distancesFor(employeeItemId)
+    ]);
+    const rankOf = c => (c.assignedAt && c.assignedAt[employeeItemId]) || c.createdAt || '';
 
-    const dateOf = (it) => {
-      const cv = (it.column_values || []).find(c => c.id === COL_DATE);
-      return (cv && cv.text) || '';
-    };
-    const projectOf = (it) => {
-      const cv = (it.column_values || []).find(c => c.id === COL_PROJET);
-      const linked = (cv && cv.linked_items && cv.linked_items[0]) || null;
-      return linked ? { id: linked.id, name: linked.name } : null;
-    };
+    // Projet(s) où l'employé connecté est planifié AUJOURD'HUI — présélectionné par défaut (1er chantier = le plus ancien).
+    const mine = weekCells.filter(c => c.day === today && c.employeeIds.includes(employeeItemId)).sort((a, b) => rankOf(a).localeCompare(rankOf(b)));
+    const plannedProjects = mine.map(c => ({ id: c.projectId, name: c.projectName }));
 
-    // Projet(s) où l'employé connecté est planifié AUJOURD'HUI — présélectionné par défaut.
-    const todayItems = weekItems.filter(it => dateOf(it) === today);
-    const mine = todayItems.filter(it => {
-      const cv = (it.column_values || []).find(c => c.id === COL_MENUISIERS);
-      const ids = (cv && cv.linked_item_ids) || [];
-      return ids.map(String).includes(employeeItemId);
-    }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    const plannedProjects = mine.map(projectOf).filter(Boolean);
-
-    // Planification de l'employé pour CHAQUE jour de la semaine en cours (lecture seule,
-    // ne va jamais au-delà de la semaine courante — voir bouton "Ma planification" mobile).
-    const mineWeek = weekItems.filter(it => {
-      const cv = (it.column_values || []).find(c => c.id === COL_MENUISIERS);
-      const ids = (cv && cv.linked_item_ids) || [];
-      return ids.map(String).includes(employeeItemId);
-    });
+    // Planification de l'employé pour CHAQUE jour de la semaine en cours (lecture seule).
     const scheduleByDate = new Map();
-    mineWeek.forEach(it => {
-      const d = dateOf(it);
-      const p = projectOf(it);
-      if (!d || !p) return;
-      if (!scheduleByDate.has(d)) scheduleByDate.set(d, []);
-      const arr = scheduleByDate.get(d);
-      if (!arr.some(x => String(x.id) === String(p.id))) arr.push(p);
+    weekCells.filter(c => c.employeeIds.includes(employeeItemId)).forEach(c => {
+      if (!scheduleByDate.has(c.day)) scheduleByDate.set(c.day, []);
+      const arr = scheduleByDate.get(c.day);
+      if (!arr.some(x => String(x.id) === String(c.projectId))) arr.push({ id: c.projectId, name: c.projectName });
     });
     const mySchedule = weekDates.map(d => ({ date: d, projects: scheduleByDate.get(d) || [] }));
 
-    // Tous les projets ayant au moins une personne RÉELLEMENT planifiée dans la semaine en cours
-    // (tous employés confondus). On exclut les items dont la liste de menuisiers est vide —
-    // ces projets sont "sans besoin de main d'œuvre" cette semaine-là et ne doivent pas apparaître.
+    // Tous les projets ayant au moins une personne RÉELLEMENT planifiée dans la semaine en cours (tous employés confondus).
     const weekProjectsMap = new Map();
-    weekItems.forEach(it => {
-      const menCv = (it.column_values || []).find(c => c.id === COL_MENUISIERS);
-      const hasWorkers = ((menCv && menCv.linked_item_ids) || []).length > 0;
-      if (!hasWorkers) return;
-      const p = projectOf(it);
-      if (p && !weekProjectsMap.has(String(p.id))) weekProjectsMap.set(String(p.id), p);
-    });
+    weekCells.forEach(c => { if (c.employeeIds.length && !weekProjectsMap.has(c.projectId)) weekProjectsMap.set(c.projectId, { id: c.projectId, name: c.projectName }); });
     const weekProjects = Array.from(weekProjectsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
-    // Filet de sécurité : projets marqués "actifs" au board Projets, même si personne n'y est
-    // encore planifié cette semaine (permet quand même de poinçonner dessus au besoin).
-    const activeProjectsBoard = (data.data.activeProjects && data.data.activeProjects[0]) || null;
+    // Filet de sécurité : projets « Projet en cours », même si personne n'y est encore planifié cette semaine.
     const horsCcqMap = new Map();
-    const activeProjects = ((activeProjectsBoard && activeProjectsBoard.items_page && activeProjectsBoard.items_page.items) || [])
-      .map(it => {
-        const cv = (it.column_values || []).find(c => c.id === PROJECT_HORS_CCQ_COL);
-        const horsCcq = (cv && cv.text) === 'v';
-        horsCcqMap.set(String(it.id), horsCcq);
-        return { id: it.id, name: it.name, horsCcq };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-    // plannedProjects/weekProjects viennent du board de planification (pas du board Projets) —
-    // on leur annexe le flag horsCcq via la map ci-dessus (par défaut false si projet non actif).
+    const activeProjects = activeList.map(p => { horsCcqMap.set(String(p.id), p.horsCcq); return { id: p.id, name: p.name, horsCcq: p.horsCcq }; });
     const withHorsCcq = p => ({ ...p, horsCcq: horsCcqMap.get(String(p.id)) || false });
     const plannedProjectsFlagged = plannedProjects.map(withHorsCcq);
     const weekProjectsFlagged = weekProjects.map(withHorsCcq);
@@ -274,15 +206,7 @@ module.exports = async function handler(req, res) {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     let kmSuggested = null;
-    const distItems = (data.data.distanceCache && data.data.distanceCache.items) || [];
-    if (distItems.length && plannedProjects.length) {
-      try {
-        const cv = (distItems[0].column_values || []).find(c => true);
-        const json = JSON.parse((cv && cv.text) || '{}');
-        const km = json[plannedProjects[0].id];
-        if (typeof km === 'number') kmSuggested = km;
-      } catch (e) { /* ignore, pas de suggestion */ }
-    }
+    if (plannedProjects.length) { const km = distMap[plannedProjects[0].id]; if (typeof km === 'number') kmSuggested = km; }
 
     // Poinçon "ouvert" (début renseigné, fin manquante) créé pour aujourd'hui — que ce soit par
     // l'employé lui-même (app déjà en cours) ou manuellement par l'admin (ajout manuel avec Début

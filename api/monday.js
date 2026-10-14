@@ -47,6 +47,19 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Données de Planif hébergées dans Neon (voir api/_lib/planif-db.js) : corps { planif: '<action>', ... }.
+  // Même point d'entrée que le relais Monday afin de ne pas ajouter de fonction Vercel (limite Hobby).
+  if (req.body && req.body.planif) {
+    try {
+      const out = await require('./_lib/planif-db').handle(String(req.body.planif), req.body, { email: claims.email || claims.sub || '', readonly: role === 'lecture-seule' });
+      res.status(200).json(out);
+    } catch (err) {
+      console.error('planif', req.body.planif, err);
+      res.status(err.status || 500).json({ error: err.message || 'Erreur Planif.' });
+    }
+    return;
+  }
+
   const mondayToken = process.env.MONDAY_API_TOKEN;
   if (!mondayToken) {
     res.status(500).json({ error: "MONDAY_API_TOKEN n'est pas configuré sur le serveur." });

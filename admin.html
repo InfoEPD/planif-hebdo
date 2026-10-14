@@ -488,9 +488,6 @@ const DEFAULT_RAYON_M = 500;
 // planification hebdomadaire (board "🚗 Distances routières - Menuisiers"). Sert de valeur de
 // repli pour la colonne "KM" d'un poinçon quand celui-ci n'a pas de km suggéré/ajusté propre
 // (ex.: poinçon ajouté manuellement, ancien historique avant l'ajout de cette fonctionnalité).
-const DISTANCES_BOARD = 18426435716;
-const DIST_EMP_COL = 'text_mm66z9bc';
-const DIST_JSON_COL = 'long_text_mm668qje';
 
 // Km additionnels "entre 2 chantiers" dans une même journée, saisis manuellement par l'admin
 // dans la Vue de la semaine (colonne "KM entre chantiers") — impossible à calculer
@@ -545,10 +542,6 @@ const M_LU_EMPLOYE = 'boolean_mm6dc4ar';
 
 // Board de planification (mêmes colonnes que api/employee-today.js) — utilisé UNIQUEMENT par
 // le Tableau de bord pour savoir qui est planifié aujourd'hui.
-const PLANNING_BOARD = 18426416285;
-const PL_PROJET = 'board_relation_mm66kzga';
-const PL_DATE = 'date_mm66w0ga';
-const PL_MENUISIERS = 'board_relation_mm66fec0';
 
 // ===================== Helpers =====================
 function loadExternalScript(attrs) {
@@ -604,6 +597,18 @@ async function gql(query, variables) {
   if (data.errors) throw new Error(data.errors.map(e => e.message).join('; '));
   if (data.error) throw new Error(data.error);
   return data.data;
+}
+// Données de Planif hébergées dans Neon (voir api/_lib/planif-db.js) — même point d'entrée /api/monday, corps { planif: '<action>' }.
+async function planifApi(action, payload) {
+  const token = await getClerkToken();
+  const res = await fetch('/api/monday', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(Object.assign({}, payload || {}, { planif: action }))
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || ('Erreur serveur (HTTP ' + res.status + ')'));
+  return data;
 }
 function cvIndex(item) {
   const m = {};
@@ -1450,24 +1455,8 @@ function geoDotHtml(status) {
 // celui-ci n'a pas de km suggéré/ajusté propre.
 async function loadRoadDistancesCache() {
   try {
-    const data = await gql(`
-      query($board: [ID!]) {
-        boards(ids: $board) {
-          items_page(limit: 100) {
-            items { id column_values(ids: ["${DIST_EMP_COL}","${DIST_JSON_COL}"]) { id text } }
-          }
-        }
-      }
-    `, { board: [String(DISTANCES_BOARD)] });
-    const items = ((data.boards[0] && data.boards[0].items_page.items) || []);
-    items.forEach(it => {
-      const cv = cvIndex(it);
-      const empId = cv[DIST_EMP_COL] && cv[DIST_EMP_COL].text;
-      if (!empId) return;
-      try {
-        distancesCache[empId] = JSON.parse((cv[DIST_JSON_COL] && cv[DIST_JSON_COL].text) || '{}');
-      } catch (e) { /* JSON invalide, ignorer */ }
-    });
+    const r = await planifApi('allDistances');
+    Object.keys(r.map || {}).forEach(empId => { distancesCache[empId] = r.map[empId]; });
   } catch (e) { /* cache indisponible — la colonne KM retombera simplement sur kmSuggere/kmAjuste */ }
   distancesCacheLoaded = true;
 }
@@ -3503,10 +3492,10 @@ async function loadDashboard() {
 
   if (!employeesCache.length) await loadComptes();
 
-  let data;
+  let data, todayPlanCells = [];
   try {
     data = await gql(`
-      query($poinBoard: ID!, $poinCol: String!, $poinVal: [String]!, $planBoard: ID!, $planCol: String!, $planVal: [String]!) {
+      query($poinBoard: ID!, $poinCol: String!, $poinVal: [String]!) {
         todayPunches: items_page_by_column_values(board_id: $poinBoard, columns: [{ column_id: $poinCol, column_values: $poinVal }], limit: 300) {
           items {
             id
@@ -3517,17 +3506,9 @@ async function loadDashboard() {
             }
           }
         }
-        todayPlanning: items_page_by_column_values(board_id: $planBoard, columns: [{ column_id: $planCol, column_values: $planVal }], limit: 300) {
-          items {
-            id
-            column_values(ids: ["${PL_PROJET}","${PL_MENUISIERS}"]) {
-              id text
-              ... on BoardRelationValue { linked_item_ids linked_items { id name } }
-            }
-          }
-        }
       }
-    `, { poinBoard: String(POINCONS_BOARD), poinCol: P_DATE, poinVal: [today], planBoard: String(PLANNING_BOARD), planCol: PL_DATE, planVal: [today] });
+    `, { poinBoard: String(POINCONS_BOARD), poinCol: P_DATE, poinVal: [today] });
+    todayPlanCells = (await planifApi('planToday', { date: today })).cells || [];
   } catch (err) { el.innerHTML = `<div class="empty-state">Erreur: ${err.message}</div>`; return; }
 
   const punchItems = ((data.todayPunches && data.todayPunches.items) || []).map(it => {
@@ -3556,14 +3537,10 @@ async function loadDashboard() {
 
   // Employés planifiés aujourd'hui (tous chantiers) qui n'ont encore aucun poinçon.
   const plannedMap = new Map();
-  ((data.todayPlanning && data.todayPlanning.items) || []).forEach(it => {
-    const cv = cvIndex(it);
-    const proj = (cv[PL_PROJET].linked_items || [])[0] || null;
-    const menIds = (cv[PL_MENUISIERS].linked_item_ids || []);
-    const menNames = cv[PL_MENUISIERS].linked_items || [];
-    menIds.forEach((id, idx) => {
+  todayPlanCells.forEach(c => {
+    (c.employeeIds || []).forEach((id, idx) => {
       const key = String(id);
-      if (!plannedMap.has(key)) plannedMap.set(key, { empId: key, empName: (menNames[idx] && menNames[idx].name) || '?', projName: proj ? proj.name : '' });
+      if (!plannedMap.has(key)) plannedMap.set(key, { empId: key, empName: (c.employeeNames && c.employeeNames[idx]) || '?', projName: c.projectName || '' });
     });
   });
   const plannedNotYetPunched = Array.from(plannedMap.values()).filter(p => !empIdsWithAnyPunch.has(p.empId)).sort((a, b) => a.empName.localeCompare(b.empName));
