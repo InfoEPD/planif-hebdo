@@ -12,8 +12,10 @@ const { neon } = require('@neondatabase/serverless');
 let _sql = null;
 function getSql() {
   if (_sql) return _sql;
-  const cs = process.env.DATABASE_URL;
-  if (!cs) throw new Error("DATABASE_URL n'est pas configuré sur le serveur.");
+  // Les annuaires (fin_employee / fin_project) et les tables planif_* vivent dans la base du projet Finance :
+  // FINANCE_DATABASE_URL = l'URL de connexion de cette base. Les tables propres à Punch/multi-entreprise restent dans DATABASE_URL.
+  const cs = process.env.FINANCE_DATABASE_URL || process.env.DATABASE_URL;
+  if (!cs) throw new Error("FINANCE_DATABASE_URL n'est pas configuré sur le serveur (base Neon du projet Finance).");
   _sql = neon(cs);
   return _sql;
 }
