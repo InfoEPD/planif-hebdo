@@ -35,6 +35,8 @@ function ensureTable() {
     days NUMERIC(6,2) NOT NULL DEFAULT 0, hours NUMERIC(5,2), type TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'pending',
     token TEXT UNIQUE, source TEXT NOT NULL DEFAULT 'employee', decided_by TEXT, decision_comment TEXT, decided_at TIMESTAMPTZ,
     planif_absence_id BIGINT, created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+    .then(() => q('ALTER TABLE absence_request ADD COLUMN IF NOT EXISTS monday_id TEXT'))
+    .then(() => q('CREATE UNIQUE INDEX IF NOT EXISTS absence_request_monday_idx ON absence_request (monday_id)'))
     .then(() => q('CREATE INDEX IF NOT EXISTS absence_request_emp_idx ON absence_request (employee_id, start_day)')).catch(e => { ready = null; throw e; });
   return ready;
 }
@@ -231,18 +233,33 @@ async function adminDelete(b) {
   if (r[0] && r[0].planif_absence_id) await q('DELETE FROM planif_absence WHERE id = $1', [r[0].planif_absence_id]);
   return { ok: true };
 }
-/** Statistiques : par employé et par type, sur les demandes approuvées de la période. */
+/** Statistiques sur les absences approuvées dont le début tombe dans la période (filtre employé / type facultatif). */
 async function adminStats(b) {
   await ensureTable();
-  const from = isDay(b.from) ? b.from : new Date().getFullYear() + '-01-01', to = isDay(b.to) ? b.to : new Date().getFullYear() + '-12-31';
-  const rows = await q(`${SEL} WHERE status = 'approved' AND start_day >= $1 AND start_day <= $2 ORDER BY employee_name`, [from, to]);
-  const byEmp = {};
+  const y = new Date().getFullYear();
+  const from = isDay(b.from) ? b.from : y + '-01-01', to = isDay(b.to) ? b.to : y + '-12-31';
+  const params = [from, to]; let extra = '';
+  if (isId(b.employeeId)) { params.push(String(b.employeeId)); extra += ` AND employee_id = $${params.length}`; }
+  if (TYPE_BY_KEY[b.type]) { params.push(b.type); extra += ` AND type = $${params.length}`; }
+  const rows = await q(`${SEL} WHERE status = 'approved' AND start_day >= $1 AND start_day <= $2${extra} ORDER BY employee_name`, params);
+  const pend = await q("SELECT count(*)::int AS n FROM absence_request WHERE status = 'pending'");
+  const byEmp = {}, byType = {}, byMonth = {}, byWeekday = [0, 0, 0, 0, 0];
+  const tot = { count: 0, days: 0, hours: 0 };
+  const add = (o, k, r) => { const x = o[k] = o[k] || { count: 0, days: 0, hours: 0 }; x.count++; x.days += Number(r.days); x.hours += Number(r.hours || 0); };
   rows.forEach(r => {
-    const e = byEmp[r.employee_id] = byEmp[r.employee_id] || { employeeId: String(r.employee_id), name: r.employee_name || '?', total: { count: 0, days: 0, hours: 0 }, types: {} };
-    const t = e.types[r.type] = e.types[r.type] || { count: 0, days: 0, hours: 0 };
-    [t, e.total].forEach(x => { x.count++; x.days += Number(r.days); x.hours += Number(r.hours || 0); });
+    const e = byEmp[r.employee_id] = byEmp[r.employee_id] || { employeeId: String(r.employee_id), name: r.employee_name || '?', total: { count: 0, days: 0, hours: 0 }, types: {}, last: '', noshow: 0 };
+    add(e.types, r.type, r); add(byType, r.type, r); add(byMonth, r.s.slice(0, 7), r);
+    e.total.count++; e.total.days += Number(r.days); e.total.hours += Number(r.hours || 0); tot.count++; tot.days += Number(r.days); tot.hours += Number(r.hours || 0);
+    if (r.type === 'noshow') e.noshow++;
+    if (r.e > e.last) e.last = r.e;
+    // jours de la semaine touchés (lun-ven)
+    const d = new Date(r.s + 'T12:00:00Z'), end = new Date(r.e + 'T12:00:00Z');
+    for (let i = 0; d <= end && i < 400; i++, d.setUTCDate(d.getUTCDate() + 1)) { const w = d.getUTCDay(); if (w >= 1 && w <= 5) byWeekday[w - 1]++; }
   });
-  return { from, to, employees: Object.values(byEmp).sort((a, c) => a.name.localeCompare(c.name)), types: TYPES.map(t => ({ key: t.key, label: t.label })) };
+  const emps = Object.values(byEmp).sort((a, c) => c.total.days - a.total.days || c.total.hours - a.total.hours || a.name.localeCompare(c.name));
+  return { from, to, employees: emps, totals: Object.assign({ employees: emps.length, pending: pend[0] ? pend[0].n : 0 }, tot),
+    byType: TYPES.map(t => ({ key: t.key, label: t.label, ...(byType[t.key] || { count: 0, days: 0, hours: 0 }) })).filter(t => t.count),
+    byMonth: Object.keys(byMonth).sort().map(k => ({ month: k, ...byMonth[k] })), byWeekday, types: TYPES.map(t => ({ key: t.key, label: t.label })) };
 }
 async function settingsGet() { return { recipients: (await getRecipients()).join(', '), smtpConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASSWORD) }; }
 async function settingsSave(b) {

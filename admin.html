@@ -326,14 +326,14 @@
         <select id="abs-f-emp"><option value="">Tous les employés</option></select>
         <select id="abs-f-type"><option value="">Tous les types</option></select>
         <select id="abs-f-status"><option value="">Tous les statuts</option><option value="pending">En attente</option><option value="approved">Approuvée</option><option value="refused">Refusée</option></select>
+        <select id="abs-f-preset"><option value="year">Année en cours</option><option value="prev">Année précédente</option><option value="12m">12 derniers mois</option><option value="all">Toutes les dates</option><option value="custom">Dates personnalisées…</option></select>
         <input type="date" id="abs-f-from"><input type="date" id="abs-f-to">
+        <input type="text" id="abs-f-search" placeholder="🔎 Chercher un employé…" style="width:220px;">
         <button class="btn btn-primary" id="abs-f-go">Filtrer</button>
+        <button class="btn" id="abs-f-reset">Réinitialiser</button>
       </div>
       <div id="abs-list-content"><div class="empty-state">Chargement…</div></div>
-      <div class="card" style="margin-top:16px;">
-        <div style="font-weight:700;margin-bottom:8px;">Statistiques (absences approuvées, période du filtre — par défaut l'année en cours)</div>
-        <div id="abs-stats-content"></div>
-      </div>
+      <div id="abs-stats-content" style="margin-top:16px;"></div>
     </div>
 
     <div class="tab-panel" id="tab-comptes">
@@ -4019,6 +4019,7 @@ async function loadAbsencesAdmin() {
       document.getElementById('abs-recipients').value = st.recipients || '';
       document.getElementById('abs-smtp-note').textContent = st.smtpConfigured ? '' : 'SMTP_USER / SMTP_PASSWORD ne sont pas configurés : aucun courriel ne partira.';
     }
+    if (!document.getElementById('abs-f-from').value) absApplyPreset();
     const f = { employeeId: document.getElementById('abs-f-emp').value, type: document.getElementById('abs-f-type').value, status: document.getElementById('abs-f-status').value,
       from: document.getElementById('abs-f-from').value, to: document.getElementById('abs-f-to').value };
     const data = await planifApi('absReqList', f);
@@ -4049,18 +4050,65 @@ async function loadAbsencesAdmin() {
       if (!window.confirm('Supprimer cette absence ?')) return;
       try { await planifApi('absReqDelete', { id: b.dataset.absDel }); loadAbsencesAdmin(); } catch (e) { showToast(e.message); }
     }));
-    const stats = await planifApi('absStats', { from: f.from, to: f.to });
-    const tl = {}; stats.types.forEach(t => { tl[t.key] = t.label; });
-    const used = stats.types.filter(t => stats.employees.some(e => e.types[t.key]));
-    document.getElementById('abs-stats-content').innerHTML = stats.employees.length ?
-      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Du ' + absFmt(stats.from) + ' au ' + absFmt(stats.to) + ' — jours (j) = jours ouvrables complets, heures (h) = journées partielles.</div>' +
-      '<table class="summary-table"><thead><tr><th>Employé</th>' + used.map(t => '<th>' + escapeHtml(t.label) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
-      stats.employees.map(e => '<tr><td>' + escapeHtml(e.name) + '</td>' + used.map(t => { const x = e.types[t.key]; return '<td>' + (x ? x.count + ' × — ' + x.days + ' j' + (x.hours ? ' + ' + x.hours + ' h' : '') : '') + '</td>'; }).join('') +
-        '<td><b>' + e.total.count + ' × — ' + e.total.days + ' j' + (e.total.hours ? ' + ' + e.total.hours + ' h' : '') + '</b></td></tr>').join('') + '</tbody></table>'
-      : '<div class="empty-state">Aucune absence approuvée sur cette période.</div>';
+    const stats = await planifApi('absStats', { from: f.from, to: f.to, employeeId: f.employeeId, type: f.type });
+    renderAbsStats(stats, f);
   } catch (e) { cont.innerHTML = '<div class="empty-state">Erreur : ' + escapeHtml(e.message) + '</div>'; }
 }
+
+const ABS_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+function absBars(rows, color) {
+  const max = Math.max(1, ...rows.map(r => r.v));
+  return rows.map(r => '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px;"><div style="width:170px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</div>' +
+    '<div style="flex:1;background:var(--panel-alt);border-radius:4px;height:16px;"><div style="width:' + Math.round(r.v / max * 100) + '%;background:' + color + ';height:100%;border-radius:4px;min-width:' + (r.v ? 2 : 0) + 'px;"></div></div><div style="width:90px;text-align:right;">' + escapeHtml(r.text) + '</div></div>').join('');
+}
+function absQty(x) { return x.days + ' j' + (x.hours ? ' + ' + (Math.round(x.hours * 100) / 100) + ' h' : ''); }
+function renderAbsStats(st, f) {
+  const el = document.getElementById('abs-stats-content');
+  const selName = f.employeeId ? ((absMeta.employees.find(e => e.id === f.employeeId) || {}).name || '') : '';
+  const kpi = (v, l, c) => '<div style="flex:1;min-width:120px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:24px;font-weight:800;color:' + (c || 'var(--text)') + ';">' + v + '</div><div style="font-size:12px;color:var(--text-secondary);">' + l + '</div></div>';
+  const t = st.totals;
+  let h = '<div style="font-weight:700;font-size:15px;margin-bottom:4px;">Statistiques' + (selName ? ' — ' + escapeHtml(selName) : '') + '</div>' +
+    '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Absences approuvées du ' + absFmt(st.from) + ' au ' + absFmt(st.to) + ' — j = jours ouvrables complets, h = journées partielles.</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + kpi(t.count, 'absences') + kpi(Math.round(t.days * 100) / 100, 'jours complets') + kpi(Math.round(t.hours * 100) / 100, 'heures (partielles)') +
+    (selName ? '' : kpi(t.employees, 'employés touchés')) + kpi(st.byType.find(x => x.key === 'noshow') ? st.byType.find(x => x.key === 'noshow').count : 0, 'No show', 'var(--danger)') + kpi(t.pending, 'en attente (global)', t.pending ? 'var(--danger)' : '') + '</div>';
+  if (!t.count) { el.innerHTML = h + '<div class="empty-state">Aucune absence approuvée sur cette période.</div>'; return; }
+  const card = (title, body) => '<div class="card" style="flex:1;min-width:320px;margin:0;"><div style="font-weight:700;margin-bottom:8px;">' + title + '</div>' + body + '</div>';
+  h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">' +
+    card('Par type d\'absence (jours)', absBars(st.byType.sort((a, b) => b.days - a.days).map(x => ({ label: x.label, v: x.days + x.hours / 8, text: x.count + ' × — ' + absQty(x) })), 'var(--accent)')) +
+    card('Par mois (début de l\'absence)', absBars(st.byMonth.map(x => ({ label: ABS_MONTHS[Number(x.month.slice(5)) - 1] + ' ' + x.month.slice(0, 4), v: x.days + x.hours / 8, text: x.count + ' × — ' + absQty(x) })), '#0e9f6e')) +
+    card('Par jour de la semaine (jours touchés)', absBars(['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'].map((d, i) => ({ label: d, v: st.byWeekday[i], text: String(st.byWeekday[i]) })), '#e67e22')) + '</div>';
+  if (!selName) {
+    h += '<div class="card" style="margin:0 0 12px;"><div style="font-weight:700;margin-bottom:8px;">Classement par employé <span style="font-weight:400;font-size:12px;color:var(--text-secondary);">(cliquez un nom pour voir sa fiche)</span></div>' +
+      '<table class="summary-table"><thead><tr><th>Employé</th><th>Absences</th><th>Jours</th><th>Heures</th><th>No show</th><th>Dernière absence</th><th>Détail par type</th></tr></thead><tbody>' +
+      st.employees.map(e => '<tr><td><a href="#" data-abs-emp="' + e.employeeId + '">' + escapeHtml(e.name) + '</a></td><td>' + e.total.count + '</td><td>' + Math.round(e.total.days * 100) / 100 + '</td><td>' + (e.total.hours ? Math.round(e.total.hours * 100) / 100 : '') + '</td>' +
+        '<td style="color:' + (e.noshow ? 'var(--danger)' : 'inherit') + ';">' + (e.noshow || '') + '</td><td>' + absFmt(e.last) + '</td><td style="text-align:left;font-size:11px;">' +
+        st.types.filter(t2 => e.types[t2.key]).map(t2 => escapeHtml(t2.label.replace(/ \(.*\)/, '')) + ' : ' + e.types[t2.key].count + ' × (' + absQty(e.types[t2.key]) + ')').join('<br>') + '</td></tr>').join('') + '</tbody></table></div>';
+  }
+  el.innerHTML = h;
+  el.querySelectorAll('[data-abs-emp]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); document.getElementById('abs-f-emp').value = a.dataset.absEmp; loadAbsencesAdmin(); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
+}
+function absApplyPreset() {
+  const p = document.getElementById('abs-f-preset').value, y = new Date().getFullYear(), from = document.getElementById('abs-f-from'), to = document.getElementById('abs-f-to');
+  if (p === 'custom') return;
+  const iso = d => d.toISOString().slice(0, 10);
+  if (p === 'year') { from.value = y + '-01-01'; to.value = y + '-12-31'; }
+  else if (p === 'prev') { from.value = (y - 1) + '-01-01'; to.value = (y - 1) + '-12-31'; }
+  else if (p === '12m') { const d = new Date(); d.setFullYear(d.getFullYear() - 1); from.value = iso(d); to.value = iso(new Date()); }
+  else { from.value = '2000-01-01'; to.value = '2100-12-31'; }
+}
 document.getElementById('abs-f-go').addEventListener('click', loadAbsencesAdmin);
+document.getElementById('abs-f-preset').addEventListener('change', () => { absApplyPreset(); loadAbsencesAdmin(); });
+['abs-f-from', 'abs-f-to'].forEach(id => document.getElementById(id).addEventListener('change', () => { document.getElementById('abs-f-preset').value = 'custom'; }));
+['abs-f-emp', 'abs-f-type', 'abs-f-status'].forEach(id => document.getElementById(id).addEventListener('change', loadAbsencesAdmin));
+document.getElementById('abs-f-search').addEventListener('input', () => {
+  const q = document.getElementById('abs-f-search').value.trim().toLowerCase();
+  const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  document.querySelectorAll('#abs-list-content tbody tr').forEach(tr => { tr.style.display = !q || norm(tr.cells[0].textContent).includes(norm(q)) ? '' : 'none'; });
+});
+document.getElementById('abs-f-reset').addEventListener('click', () => {
+  ['abs-f-emp', 'abs-f-type', 'abs-f-status', 'abs-f-search'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('abs-f-preset').value = 'year'; absApplyPreset(); loadAbsencesAdmin();
+});
 document.getElementById('abs-recipients-save').addEventListener('click', async () => {
   try { await planifApi('absSettingsSave', { recipients: document.getElementById('abs-recipients').value }); showToast('Destinataires enregistrés.'); } catch (e) { showToast(e.message); }
 });
