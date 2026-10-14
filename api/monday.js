@@ -51,7 +51,7 @@ module.exports = async function handler(req, res) {
   // Même point d'entrée que le relais Monday afin de ne pas ajouter de fonction Vercel (limite Hobby).
   if (req.body && req.body.planif) {
     try {
-      const out = await require('./_lib/planif-db').handle(String(req.body.planif), req.body, { email: claims.email || claims.sub || '', readonly: role === 'lecture-seule' });
+      const out = await require('./_lib/planif-db').handle(String(req.body.planif), req.body, { email: claims.email || claims.sub || '', readonly: role === 'lecture-seule', origin: (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers['x-forwarded-host'] || req.headers.host || '') });
       res.status(200).json(out);
     } catch (err) {
       console.error('planif', req.body.planif, err);

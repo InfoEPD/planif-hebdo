@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Exacto — Demande d'absence</title>
+<style>
+  :root { --text:#0b1e3d; --sec:#5b6b85; --border:#dde4f0; --ok:#15803d; --no:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; background:#f4f6fb; color:var(--text); }
+  .wrap { max-width:520px; margin:40px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:22px; box-shadow:0 4px 24px rgba(11,30,61,.06); }
+  h1 { font-size:20px; margin:0 0 14px; }
+  table { border-collapse:collapse; font-size:14px; margin-bottom:14px; }
+  td { padding:4px 14px 4px 0; vertical-align:top; } td:first-child { color:var(--sec); }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
+  input, textarea { width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 10px; font:inherit; }
+  textarea { min-height:90px; resize:vertical; }
+  .row { display:flex; gap:10px; margin-top:16px; }
+  button { flex:1; border:none; border-radius:8px; padding:12px; font-size:15px; font-weight:700; color:#fff; cursor:pointer; opacity:.55; }
+  button.sel { opacity:1; box-shadow:0 0 0 3px rgba(11,30,61,.25); }
+  #b-approve { background:var(--ok); } #b-refuse { background:var(--no); }
+  #send { background:#0b3d6e; opacity:1; margin-top:16px; width:100%; }
+  #send:disabled { opacity:.5; }
+  .msg { padding:12px; border-radius:8px; margin-top:14px; font-size:14px; }
+  .msg.err { background:#fdecef; color:var(--no); } .msg.ok { background:#e8faf1; color:var(--ok); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>Demande d'absence</h1>
+  <div id="loading">Chargement…</div>
+  <div id="content" class="hidden">
+    <table id="details"></table>
+    <div id="form">
+      <div class="row">
+        <button type="button" id="b-approve">Approuver</button>
+        <button type="button" id="b-refuse">Refuser</button>
+      </div>
+      <label for="by">Votre nom (facultatif)</label>
+      <input id="by" type="text" maxlength="100" placeholder="Ex. Marc-Antoine">
+      <label for="comment">Commentaire <span id="req" class="hidden" style="color:var(--no)">(obligatoire pour un refus)</span></label>
+      <textarea id="comment" maxlength="1000" placeholder="Visible par l'employé dans le courriel de confirmation"></textarea>
+      <button type="button" id="send" disabled>Confirmer la décision</button>
+    </div>
+  </div>
+  <div id="result" class="msg hidden"></div>
+</div></div>
+<script>
+const qs = new URLSearchParams(location.search);
+const token = qs.get('t') || '';
+let decision = qs.get('d') === 'refuse' ? 'refuse' : (qs.get('d') === 'approve' ? 'approve' : '');
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const fmt = d => { const [y,m,j] = String(d).split('-'); return j + '/' + m + '/' + y; };
+async function call(body) {
+  const r = await fetch('/api/punch', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || ('Erreur HTTP ' + r.status));
+  return d;
+}
+function show(kind, text) { const el = $('result'); el.className = 'msg ' + kind; el.textContent = text; }
+function refresh() {
+  $('b-approve').classList.toggle('sel', decision === 'approve');
+  $('b-refuse').classList.toggle('sel', decision === 'refuse');
+  $('req').classList.toggle('hidden', decision !== 'refuse');
+  $('send').disabled = !decision;
+  $('send').textContent = decision === 'approve' ? 'Confirmer : approuver' : (decision === 'refuse' ? 'Confirmer : refuser' : 'Choisissez Approuver ou Refuser');
+}
+(async function init() {
+  try {
+    const { request: r } = await call({ action: 'absenceDecisionGet', token });
+    $('loading').classList.add('hidden'); $('content').classList.remove('hidden');
+    const dur = r.hours ? r.hours + ' h (journée partielle)' : r.days + ' jour(s) ouvrable(s)';
+    $('details').innerHTML = [['Employé', r.name], ['Période', r.start === r.end ? fmt(r.start) : fmt(r.start) + ' au ' + fmt(r.end)], ['Durée', dur], ['Type', r.typeLabel], ['Informations', r.details || '—']]
+      .map(([k, v]) => '<tr><td>' + k + '</td><td><b>' + esc(v) + '</b></td></tr>').join('');
+    if (r.status !== 'pending') {
+      $('form').classList.add('hidden');
+      show('ok', 'Cette demande a déjà été traitée : ' + r.statusLabel + (r.decidedBy ? ' par ' + r.decidedBy : '') + '.' + (r.comment ? ' Commentaire : ' + r.comment : ''));
+    } else refresh();
+  } catch (e) { $('loading').classList.add('hidden'); show('err', e.message); }
+})();
+$('b-approve').onclick = () => { decision = 'approve'; refresh(); };
+$('b-refuse').onclick = () => { decision = 'refuse'; refresh(); };
+$('send').onclick = async () => {
+  const comment = $('comment').value.trim();
+  if (decision === 'refuse' && !comment) { show('err', 'Un commentaire est requis pour refuser une demande.'); return; }
+  $('send').disabled = true; $('result').className = 'msg hidden';
+  try {
+    const out = await call({ action: 'absenceDecide', token, decision, comment, by: $('by').value.trim() });
+    $('form').classList.add('hidden');
+    show('ok', 'Décision enregistrée (' + (decision === 'approve' ? 'approuvée' : 'refusée') + '). ' + (out.mail && out.mail.ok ? "L'employé a reçu un courriel de confirmation." : "Aucun courriel envoyé à l'employé" + (out.mail && out.mail.error ? ' (' + out.mail.error + ')' : '') + '.'));
+  } catch (e) { show('err', e.message); $('send').disabled = false; }
+};
+</script>
+</body>
+</html>

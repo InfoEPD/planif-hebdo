@@ -289,9 +289,12 @@ async function planToday(b) {
 }
 async function allDistancesAction() { return { map: await allDistances() }; }
 
-const READ = new Set(['planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
+const ab = () => require('./absence-db');
+const READ = new Set(['absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
 const ACTIONS = { planToday, allDistances: allDistancesAction, load, cellCreate, cellUpdate, cellAssignedAt, cellDelete, projectWeekSet, projectLabor, projectHours, holidaySet, settingsSave, absenceSave, absenceList, absenceDelete,
-  historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh };
+  historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
+  absReqList: b => ab().adminList(b), absReqCreate: (b, c) => ab().adminCreate(b, c), absReqDecide: (b, c) => ab().adminDecide(b, c), absReqDelete: b => ab().adminDelete(b),
+  absStats: b => ab().adminStats(b), absSettingsGet: () => ab().settingsGet(), absSettingsSave: b => ab().settingsSave(b) };
 
 /** Point d'entrée : retourne l'objet de réponse JSON. ctx = { email, readonly }. */
 async function handle(action, body, ctx) {

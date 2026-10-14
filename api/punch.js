@@ -334,6 +334,18 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Absences — lien public du courriel (jeton secret, aucune connexion requise) : consulter / approuver / refuser.
+  if (req.body && ['absenceDecisionGet', 'absenceDecide', 'absencePublicTypes', 'absencePublicCreate'].includes(req.body.action)) {
+    try {
+      const ab = require('./_lib/absence-db');
+      const ctx = { origin: (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers['x-forwarded-host'] || req.headers.host || '') };
+      const a = req.body.action;
+      const out = a === 'absenceDecisionGet' ? await ab.publicGet(req.body.token) : a === 'absencePublicTypes' ? ab.publicTypes() : a === 'absencePublicCreate' ? await ab.publicCreate(req.body, ctx) : await ab.publicDecide(req.body, ctx);
+      res.status(200).json(out);
+    } catch (err) { res.status(err.status || 500).json({ error: err.message || 'Erreur.' }); }
+    return;
+  }
+
   const bearerToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   if (!bearerToken) { res.status(401).json({ error: 'Non authentifié.' }); return; }
 
@@ -503,6 +515,17 @@ module.exports = async function handler(req, res) {
   const employeeItemId = String(meta.employeeItemId);
 
   try {
+    // Absences (remplace le formulaire Monday) : liste de mes demandes + nouvelle demande.
+    if (action === 'absenceMine' || action === 'absenceCreate') {
+      const ab = require('./_lib/absence-db');
+      try {
+        const ctx = { origin: (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers['x-forwarded-host'] || req.headers.host || '') };
+        const out = action === 'absenceMine' ? await ab.employeeList(employeeItemId) : await ab.employeeCreate(employeeItemId, req.body, ctx);
+        res.status(200).json(out);
+      } catch (err) { res.status(err.status || 500).json({ error: err.message || 'Erreur.' }); }
+      return;
+    }
+
     // Changement de mot de passe (self-service) — utilisé au premier login (mustChangePassword)
     // et volontairement par l'employé ensuite. Remplace l'ancien flux Clerk signIn.resetPassword().
     if (action === 'changePassword') {

@@ -123,6 +123,7 @@
     <button class="btn-secondary" id="btn-open-history" style="flex:1;margin-top:0;">📜 Historique</button>
     <button class="btn-secondary" id="btn-open-schedule" style="flex:1;margin-top:0;">📅 Ma planification</button>
     <button class="btn-secondary" id="btn-open-messages" style="flex:1;margin-top:0;position:relative;">💬 Mes messages<span id="messages-unread-badge" class="unread-badge hidden">0</span></button>
+    <button class="btn-secondary" id="btn-open-absences" style="flex:1;margin-top:0;">🗓️ Absences</button>
     <button class="btn-secondary hidden" id="btn-open-approval" style="flex:1;margin-top:0;">✅ Approbation</button>
     <button class="btn-secondary" id="btn-open-mydata" style="flex:1;margin-top:0;">🔒 Mes données</button>
   </div>
@@ -233,6 +234,26 @@
       <button class="btn-main" id="btn-messages-reply-send" style="width:auto;margin-top:0;padding:10px 16px;">Envoyer</button>
     </div>
     <button class="btn-secondary" id="btn-close-messages">Fermer</button>
+  </div>
+</div>
+
+<div id="absence-panel" class="msg-panel hidden">
+  <div class="sheet" style="max-height:90vh;overflow-y:auto;">
+    <h3>Demande d'absence</h3>
+    <div style="font-size:12px;color:var(--text-secondary);margin:-6px 0 10px;">Votre demande est envoyée par courriel pour approbation. Vous recevrez un courriel de confirmation lorsqu'elle sera traitée.</div>
+    <label style="font-size:13px;font-weight:600;">Période d'absence</label>
+    <div style="display:flex;gap:8px;align-items:center;margin:4px 0 10px;"><input type="date" id="abs-start" style="flex:1;"><span>→</span><input type="date" id="abs-end" style="flex:1;"></div>
+    <label style="font-size:13px;font-weight:600;">Durée (heures)</label>
+    <div style="font-size:12px;color:var(--text-secondary);margin:2px 0 4px;">Ne rien inscrire pour une ou des journées complètes. Inscrire le nombre d'heures seulement pour une journée partielle (même date de début et de fin).</div>
+    <input type="number" id="abs-hours" min="0.25" max="24" step="0.25" inputmode="decimal" placeholder="Ex. 3.5">
+    <label style="font-size:13px;font-weight:600;display:block;margin-top:10px;">Type d'absence</label>
+    <select id="abs-type" style="margin-top:4px;"></select>
+    <label style="font-size:13px;font-weight:600;display:block;margin-top:10px;">Infos complémentaires sur la raison de l'absence</label>
+    <textarea id="abs-details" maxlength="1000" style="margin-top:4px;"></textarea>
+    <button class="btn-main" id="btn-abs-send" style="margin-top:12px;">Envoyer la demande</button>
+    <div style="font-weight:700;margin:18px 0 6px;">Mes demandes</div>
+    <div id="abs-list"><div style="color:var(--text-secondary);font-size:13px;">Chargement…</div></div>
+    <button class="btn-secondary" id="btn-close-absences">Fermer</button>
   </div>
 </div>
 
@@ -1311,6 +1332,51 @@ document.getElementById('btn-open-schedule').addEventListener('click', openSched
 document.getElementById('btn-close-schedule').addEventListener('click', () => document.getElementById('schedule-panel').classList.add('hidden'));
 document.getElementById('btn-open-messages').addEventListener('click', openMessages);
 document.getElementById('btn-close-messages').addEventListener('click', () => document.getElementById('messages-panel').classList.add('hidden'));
+
+// ===================== Absences (remplace le formulaire Monday) =====================
+async function openAbsences() {
+  document.getElementById('absence-panel').classList.remove('hidden');
+  await loadAbsences();
+}
+async function loadAbsences() {
+  const list = document.getElementById('abs-list');
+  try {
+    const data = await apiCall('/api/punch', { action: 'absenceMine' });
+    const sel = document.getElementById('abs-type');
+    if (!sel.options.length) {
+      sel.innerHTML = '<option value="">— Choisir —</option>' + (data.types || []).map(t => '<option value="' + escapeHtml(t.key) + '">' + escapeHtml(t.label) + '</option>').join('');
+    }
+    const fmt = d => { const p = String(d).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
+    const colors = { pending: '#b45309', approved: '#15803d', refused: '#b91c1c' };
+    list.innerHTML = (data.requests || []).length ? data.requests.map(r =>
+      '<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;"><b>' + (r.start === r.end ? fmt(r.start) : fmt(r.start) + ' → ' + fmt(r.end)) + '</b>' +
+      '<span style="font-weight:700;color:' + (colors[r.status] || '#555') + ';">' + escapeHtml(r.statusLabel) + '</span></div>' +
+      '<div style="color:var(--text-secondary);">' + escapeHtml(r.typeLabel) + ' — ' + (r.hours ? r.hours + ' h' : r.days + ' j') + '</div>' +
+      (r.comment ? '<div style="margin-top:4px;"><b>Commentaire :</b> ' + escapeHtml(r.comment) + '</div>' : '') + '</div>').join('')
+      : '<div style="color:var(--text-secondary);font-size:13px;">Aucune demande.</div>';
+  } catch (e) { list.innerHTML = '<div style="color:var(--danger);font-size:13px;">' + escapeHtml(e.message) + '</div>'; }
+}
+async function sendAbsence() {
+  const btn = document.getElementById('btn-abs-send');
+  const body = { action: 'absenceCreate', start: document.getElementById('abs-start').value, end: document.getElementById('abs-end').value,
+    hours: document.getElementById('abs-hours').value, type: document.getElementById('abs-type').value, details: document.getElementById('abs-details').value.trim() };
+  if (!body.start || !body.end) { showToast("Indiquez la période d'absence."); return; }
+  if (!body.type) { showToast("Choisissez le type d'absence."); return; }
+  btn.disabled = true;
+  try {
+    const out = await apiCall('/api/punch', body);
+    ['abs-start', 'abs-end', 'abs-hours', 'abs-details'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('abs-type').value = '';
+    showToast(out.mailSent ? 'Demande envoyée.' : 'Demande enregistrée (courriel non envoyé aux approbateurs).');
+    await loadAbsences();
+  } catch (e) { showToast(e.message); }
+  btn.disabled = false;
+}
+document.getElementById('btn-open-absences').addEventListener('click', openAbsences);
+document.getElementById('btn-close-absences').addEventListener('click', () => document.getElementById('absence-panel').classList.add('hidden'));
+document.getElementById('btn-abs-send').addEventListener('click', sendAbsence);
+document.getElementById('abs-start').addEventListener('change', e => { const en = document.getElementById('abs-end'); if (!en.value || en.value < e.target.value) en.value = e.target.value; });
 document.getElementById('btn-msg-week-prev').addEventListener('click', () => { state.messagesWeek = addDaysToWeekKey(state.messagesWeek, -7); renderMessagesWeek(); });
 document.getElementById('btn-msg-week-next').addEventListener('click', () => { state.messagesWeek = addDaysToWeekKey(state.messagesWeek, 7); renderMessagesWeek(); });
 document.getElementById('btn-messages-reply-send').addEventListener('click', sendMessageReply);

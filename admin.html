@@ -246,6 +246,7 @@
     <button data-tab="parempl">Vue par employé</button>
     <button data-tab="parprojet">Vue par projet</button>
     <button data-tab="comptes" style="margin-left:auto;">Comptes employés</button>
+    <button data-tab="absences">Absences</button>
     <button data-tab="export">Export paie</button>
     <button data-tab="config">Configuration</button>
     <button data-tab="acces">Gestion des accès</button>
@@ -300,6 +301,39 @@
         <button class="btn btn-outline" id="wk-refresh2">↻ Rafraîchir</button>
       </div>
       <div id="parprojet-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-absences">
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:6px;">Destinataires des demandes d'absence</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Adresses courriel (séparées par des virgules) qui reçoivent chaque demande avec les boutons Approuver / Refuser.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;"><input type="text" id="abs-recipients" style="flex:1;min-width:260px;" placeholder="nom@entreprise.com, autre@entreprise.com"><button class="btn btn-primary" id="abs-recipients-save">Enregistrer</button></div>
+        <div id="abs-smtp-note" style="font-size:12px;color:var(--danger);margin-top:6px;"></div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:8px;">Saisir une absence (statistiques)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="font-size:12px;">Employé<br><select id="abs-new-emp" style="min-width:200px;"></select></label>
+          <label style="font-size:12px;">Type<br><select id="abs-new-type" style="min-width:220px;"></select></label>
+          <label style="font-size:12px;">Début<br><input type="date" id="abs-new-start"></label>
+          <label style="font-size:12px;">Fin<br><input type="date" id="abs-new-end"></label>
+          <label style="font-size:12px;">Heures (partielle)<br><input type="number" id="abs-new-hours" min="0.25" max="24" step="0.25" style="width:90px;"></label>
+          <label style="font-size:12px;flex:1;min-width:180px;">Détails<br><input type="text" id="abs-new-details" style="width:100%;"></label>
+          <button class="btn btn-primary" id="abs-new-save">Ajouter</button>
+        </div>
+      </div>
+      <div class="weeknav" style="flex-wrap:wrap;gap:8px;">
+        <select id="abs-f-emp"><option value="">Tous les employés</option></select>
+        <select id="abs-f-type"><option value="">Tous les types</option></select>
+        <select id="abs-f-status"><option value="">Tous les statuts</option><option value="pending">En attente</option><option value="approved">Approuvée</option><option value="refused">Refusée</option></select>
+        <input type="date" id="abs-f-from"><input type="date" id="abs-f-to">
+        <button class="btn btn-primary" id="abs-f-go">Filtrer</button>
+      </div>
+      <div id="abs-list-content"><div class="empty-state">Chargement…</div></div>
+      <div class="card" style="margin-top:16px;">
+        <div style="font-weight:700;margin-bottom:8px;">Statistiques (absences approuvées, période du filtre — par défaut l'année en cours)</div>
+        <div id="abs-stats-content"></div>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-comptes">
@@ -3973,6 +4007,74 @@ async function exportTxt() {
   }
 }
 
+
+// ===================== Absences =====================
+let absLoaded = false, absMeta = { employees: [], types: [] };
+const absFmt = d => { const p = String(d).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
+async function loadAbsencesAdmin() {
+  const cont = document.getElementById('abs-list-content');
+  try {
+    if (!absLoaded) {
+      const st = await planifApi('absSettingsGet');
+      document.getElementById('abs-recipients').value = st.recipients || '';
+      document.getElementById('abs-smtp-note').textContent = st.smtpConfigured ? '' : 'SMTP_USER / SMTP_PASSWORD ne sont pas configurés : aucun courriel ne partira.';
+    }
+    const f = { employeeId: document.getElementById('abs-f-emp').value, type: document.getElementById('abs-f-type').value, status: document.getElementById('abs-f-status').value,
+      from: document.getElementById('abs-f-from').value, to: document.getElementById('abs-f-to').value };
+    const data = await planifApi('absReqList', f);
+    absMeta = { employees: data.employees, types: data.types };
+    if (!absLoaded) {
+      const opt = (v, t) => '<option value="' + escapeHtml(v) + '">' + escapeHtml(t) + '</option>';
+      document.getElementById('abs-f-emp').innerHTML = '<option value="">Tous les employés</option>' + data.employees.map(e => opt(e.id, e.name)).join('');
+      document.getElementById('abs-f-type').innerHTML = '<option value="">Tous les types</option>' + data.types.map(t => opt(t.key, t.label)).join('');
+      document.getElementById('abs-new-emp').innerHTML = data.employees.map(e => opt(e.id, e.name)).join('');
+      document.getElementById('abs-new-type').innerHTML = data.types.map(t => opt(t.key, t.label)).join('');
+      absLoaded = true;
+    }
+    const colors = { pending: 'var(--danger)', approved: 'var(--green)', refused: 'var(--text-secondary)' };
+    cont.innerHTML = data.requests.length ? '<table><thead><tr><th>Employé</th><th>Période</th><th>Durée</th><th>Type</th><th>Détails</th><th>Statut</th><th>Décision</th><th></th></tr></thead><tbody>' +
+      data.requests.map(r => '<tr><td>' + escapeHtml(r.name) + '</td><td>' + (r.start === r.end ? absFmt(r.start) : absFmt(r.start) + ' → ' + absFmt(r.end)) + '</td><td>' + (r.hours ? r.hours + ' h' : r.days + ' j') + '</td><td>' + escapeHtml(r.typeLabel) + '</td><td>' + escapeHtml(r.details) + '</td>' +
+        '<td style="font-weight:700;color:' + colors[r.status] + ';">' + escapeHtml(r.statusLabel) + (r.source === 'admin' ? ' <span style="font-weight:400;font-size:11px;">(saisie admin)</span>' : '') + '</td>' +
+        '<td style="font-size:12px;">' + (r.decidedBy ? escapeHtml(r.decidedBy) : '') + (r.comment ? '<br><i>' + escapeHtml(r.comment) + '</i>' : '') + '</td>' +
+        '<td style="white-space:nowrap;">' + (r.status === 'pending' ? '<button class="btn btn-green" data-abs-decide="approved" data-id="' + r.id + '">Approuver</button><button class="btn btn-danger" data-abs-decide="refused" data-id="' + r.id + '">Refuser</button>' : '') +
+        '<button class="btn" data-abs-del="' + r.id + '" title="Supprimer">🗑</button></td></tr>').join('') + '</tbody></table>'
+      : '<div class="empty-state">Aucune absence.</div>';
+    cont.querySelectorAll('[data-abs-decide]').forEach(b => b.addEventListener('click', async () => {
+      const decision = b.dataset.absDecide;
+      const comment = window.prompt(decision === 'refused' ? 'Commentaire du refus (obligatoire) :' : 'Commentaire (facultatif) :', '');
+      if (comment === null) return;
+      try { await planifApi('absReqDecide', { id: b.dataset.id, decision, comment }); showToast('Décision enregistrée — courriel envoyé à l\'employé si une adresse est au dossier.'); loadAbsencesAdmin(); } catch (e) { showToast(e.message); }
+    }));
+    cont.querySelectorAll('[data-abs-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!window.confirm('Supprimer cette absence ?')) return;
+      try { await planifApi('absReqDelete', { id: b.dataset.absDel }); loadAbsencesAdmin(); } catch (e) { showToast(e.message); }
+    }));
+    const stats = await planifApi('absStats', { from: f.from, to: f.to });
+    const tl = {}; stats.types.forEach(t => { tl[t.key] = t.label; });
+    const used = stats.types.filter(t => stats.employees.some(e => e.types[t.key]));
+    document.getElementById('abs-stats-content').innerHTML = stats.employees.length ?
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Du ' + absFmt(stats.from) + ' au ' + absFmt(stats.to) + ' — jours (j) = jours ouvrables complets, heures (h) = journées partielles.</div>' +
+      '<table class="summary-table"><thead><tr><th>Employé</th>' + used.map(t => '<th>' + escapeHtml(t.label) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
+      stats.employees.map(e => '<tr><td>' + escapeHtml(e.name) + '</td>' + used.map(t => { const x = e.types[t.key]; return '<td>' + (x ? x.count + ' × — ' + x.days + ' j' + (x.hours ? ' + ' + x.hours + ' h' : '') : '') + '</td>'; }).join('') +
+        '<td><b>' + e.total.count + ' × — ' + e.total.days + ' j' + (e.total.hours ? ' + ' + e.total.hours + ' h' : '') + '</b></td></tr>').join('') + '</tbody></table>'
+      : '<div class="empty-state">Aucune absence approuvée sur cette période.</div>';
+  } catch (e) { cont.innerHTML = '<div class="empty-state">Erreur : ' + escapeHtml(e.message) + '</div>'; }
+}
+document.getElementById('abs-f-go').addEventListener('click', loadAbsencesAdmin);
+document.getElementById('abs-recipients-save').addEventListener('click', async () => {
+  try { await planifApi('absSettingsSave', { recipients: document.getElementById('abs-recipients').value }); showToast('Destinataires enregistrés.'); } catch (e) { showToast(e.message); }
+});
+document.getElementById('abs-new-save').addEventListener('click', async () => {
+  const b = { employeeId: document.getElementById('abs-new-emp').value, type: document.getElementById('abs-new-type').value, start: document.getElementById('abs-new-start').value,
+    end: document.getElementById('abs-new-end').value || document.getElementById('abs-new-start').value, hours: document.getElementById('abs-new-hours').value, details: document.getElementById('abs-new-details').value };
+  if (!b.employeeId || !b.start) { showToast('Choisissez un employé et une date.'); return; }
+  try {
+    await planifApi('absReqCreate', b);
+    ['abs-new-start', 'abs-new-end', 'abs-new-hours', 'abs-new-details'].forEach(id => { document.getElementById(id).value = ''; });
+    showToast('Absence ajoutée.'); loadAbsencesAdmin();
+  } catch (e) { showToast(e.message); }
+});
+
 // ===================== Navigation =====================
 document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -3981,6 +4083,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'comptes' && !employeesCache.length) loadComptes();
+    if (btn.dataset.tab === 'absences') loadAbsencesAdmin();
     if (btn.dataset.tab === 'dashboard') loadDashboard();
     // Toujours recharger depuis Monday à chaque visite de l'onglet (pas seulement la première
     // fois) : sinon un renommage de Métier/Tâche fait directement dans Monday ne se reflète
