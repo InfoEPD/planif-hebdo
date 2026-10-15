@@ -38,6 +38,10 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  try {
+    if ((await require('./_lib/access').level(claims, 'planif')) !== 'full') { res.status(403).json({ error: "Accès complet à Planif requis pour envoyer l'horaire." }); return; }
+  } catch (e) { res.status(500).json({ error: 'Vérification des accès impossible.' }); return; }
+
   const smtpUser = process.env.SMTP_USER;
   const smtpPassword = process.env.SMTP_PASSWORD;
   if (!smtpUser || !smtpPassword) {

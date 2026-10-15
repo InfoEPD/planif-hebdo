@@ -47,11 +47,27 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Accès par module (Finance → Configuration → Accès aux modules). Planif n'a le droit qu'à ses propres actions.
+  const accessLib = require('./_lib/access');
+  const PLANIF_ACTIONS = new Set(['absenceDelete','absenceList','absenceSave','cellAssignedAt','cellCreate','cellDelete','cellUpdate','distancesRefresh','draftCandidates','historyAdd','historyList','holidaySet','load','projectHours','projectLabor','projectWeekSet','sendRecordGet','sendRecordSave','settingsSave']);
+  let effRole = role;
+  if (req.body && req.body.planif === 'myAccess') {
+    res.status(200).json({ planif: await accessLib.level(claims, 'planif'), punch_admin: await accessLib.level(claims, 'punch_admin') });
+    return;
+  }
+  const modName = (req.body && req.body.planif && req.body.module === 'planif' && PLANIF_ACTIONS.has(String(req.body.planif))) ? 'planif' : 'punch_admin';
+  const lvl = await accessLib.level(claims, modName);
+  if (lvl === 'none') {
+    res.status(403).json({ error: "Vous n'avez pas accès à ce module. Demandez l'accès à un administrateur (Finance → Configuration → Accès aux modules)." });
+    return;
+  }
+  effRole = lvl === 'read' ? 'lecture-seule' : 'admin';
+
   // Données de Planif hébergées dans Neon (voir api/_lib/planif-db.js) : corps { planif: '<action>', ... }.
   // Même point d'entrée que le relais Monday afin de ne pas ajouter de fonction Vercel (limite Hobby).
   if (req.body && req.body.planif) {
     try {
-      const out = await require('./_lib/planif-db').handle(String(req.body.planif), req.body, { email: claims.email || claims.sub || '', readonly: role === 'lecture-seule', origin: (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers['x-forwarded-host'] || req.headers.host || '') });
+      const out = await require('./_lib/planif-db').handle(String(req.body.planif), req.body, { email: claims.email || claims.sub || '', readonly: effRole === 'lecture-seule', origin: (req.headers['x-forwarded-proto'] || 'https') + '://' + (req.headers['x-forwarded-host'] || req.headers.host || '') });
       res.status(200).json(out);
     } catch (err) {
       console.error('planif', req.body.planif, err);
@@ -72,7 +88,7 @@ module.exports = async function handler(req, res) {
   // fait réellement autorité (voir audit du 26 août 2026, point #2). Une requête GraphQL de ce
   // fichier commence toujours par "query" ou "mutation" (jamais l'écriture raccourcie sans mot-
   // clé) — voir gql() dans admin.html.
-  if (role === 'lecture-seule' && /^\s*mutation\b/i.test(query)) {
+  if (effRole === 'lecture-seule' && /^\s*mutation\b/i.test(query)) {
     res.status(403).json({ error: 'Accès en lecture seule : cette action est désactivée pour votre compte.' });
     return;
   }

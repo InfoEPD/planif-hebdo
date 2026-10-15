@@ -640,7 +640,7 @@ async function planifApi(action, payload) {
     res = await fetch('/api/monday', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') },
-      body: JSON.stringify(Object.assign({}, payload || {}, { planif: action }))
+      body: JSON.stringify(Object.assign({}, payload || {}, { planif: action, module: 'planif' }))
     });
   } catch (networkErr) {
     throw new Error("Impossible de joindre le serveur (" + networkErr.message + ")");

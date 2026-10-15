@@ -86,7 +86,9 @@ module.exports = async function handler(req, res) {
   // de passe, activer/désactiver l'accès mobile) — un compte "lecture-seule" ne doit donc jamais
   // pouvoir les exécuter, même par un appel direct à l'API (voir audit du 26 août 2026, point #2 ;
   // même patron déjà utilisé dans admin-access.js).
-  if (role === 'employee' || role === 'employee_disabled' || role === 'lecture-seule') {
+  let _lvl = 'none';
+  try { _lvl = await require('./_lib/access').level(claims, 'punch_admin'); } catch (e) { _lvl = role === 'lecture-seule' ? 'read' : 'full'; }
+  if (role === 'employee' || role === 'employee_disabled' || _lvl !== 'full') {
     res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
     return;
   }

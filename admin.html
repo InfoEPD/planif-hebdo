@@ -197,6 +197,7 @@
      projet) et les exports (PDF, Export paie). */
   body.role-readonly nav.tabs button[data-tab="config"],
   body.role-readonly nav.tabs button[data-tab="comptes"],
+  nav.tabs button[data-tab="acces"] { display: none !important; }
   body.role-readonly nav.tabs button[data-tab="acces"],
   body.role-readonly .btn-approve,
   body.role-readonly .btn-reject,
@@ -4419,6 +4420,12 @@ async function initApp() {
     return;
   }
   isReadOnlyUser = (meta.role === 'lecture-seule');
+  // Accès par module (Finance → Configuration → Accès aux modules) : le serveur fait foi.
+  try {
+    const acc = await planifApi('myAccess');
+    if (acc && acc.punch_admin === 'none') { document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Vous n\u2019avez pas accès à Admin Punch. Demandez l\u2019accès à un administrateur.</div>'; return; }
+    if (acc && acc.punch_admin) isReadOnlyUser = (acc.punch_admin === 'read');
+  } catch (e) { /* ancien système */ }
   if (isReadOnlyUser) { document.body.classList.add('role-readonly'); startReadOnlyEnforcement(); }
   appStarted = true;
   document.getElementById('clerk-signin').classList.add('hidden');
