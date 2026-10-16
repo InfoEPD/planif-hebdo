@@ -1,14 +1,23 @@
 {
   "cleanUrls": true,
+  "installCommand": "npm install",
+  "buildCommand": "",
+  "outputDirectory": ".",
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     }
   ],
   "crons": [
-    { "path": "/api/auto-close-punches", "schedule": "0 0 * * *" }
+    {
+      "path": "/api/auto-close-punches",
+      "schedule": "0 0 * * *"
+    }
   ]
 }
