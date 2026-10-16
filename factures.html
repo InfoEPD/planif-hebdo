@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exacto-Finance — Factures</title>
+<link rel="icon" type="image/png" href="/exacto-icon.png">
+<style>
+  :root {
+    --bg:#f3f5fa; --panel:#ffffff; --border:#dbe1ee; --text:#17223b; --muted:#6a7691;
+    --accent:#2f5bea; --accent-dark:#2347c0; --accent-soft:#e8eeff; --ok:#12805c; --ok-soft:#dff5ec;
+    --warn:#a96100; --warn-soft:#fff1d9; --bad:#c0263d; --bad-soft:#fde4e8; --grey-soft:#e9ecf3;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif; font-size:14px; }
+  .hidden { display:none !important; }
+  header { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:18px; padding:0 22px; height:58px; position:sticky; top:0; z-index:20; }
+  header img.logo { height:30px; }
+  header .app-name { font-weight:700; font-size:16px; color:var(--text); border-left:1px solid var(--border); padding-left:16px; }
+  nav { display:flex; gap:4px; margin-left:12px; }
+  nav button, nav a { background:none; border:none; padding:8px 14px; border-radius:7px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; text-decoration:none; font-family:inherit; }
+  nav button.active, nav a.active { background:var(--accent-soft); color:var(--accent-dark); }
+  .spacer { flex:1; }
+  #clerk-account { display:flex; align-items:center; gap:8px; }
+  #clerk-user-name { font-size:12.5px; color:var(--muted); font-weight:600; }
+  main { max-width:1360px; margin:0 auto; padding:22px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-bottom:14px; }
+  .stat { background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; } .stat.click { cursor:pointer; } .stat.click:hover { border-color:var(--accent); }
+  .stat .lbl { font-size:12px; color:var(--muted); font-weight:600; } .stat .val { font-size:20px; font-weight:800; margin:2px 0; } .stat .sub { font-size:12.5px; color:var(--muted); } .stat.hot { border-color:var(--accent); background:var(--accent-soft); } .stat.zero { opacity:.55; }
+  th[data-sort] { cursor:pointer; user-select:none; } th[data-sort]:hover { color:var(--accent-dark); } .sarr { font-size:10px; }
+  .sgrp td { background:#eaf0fb; font-weight:800; font-size:13.5px; color:var(--text); border-top:2px solid #cfd9ee; cursor:pointer; user-select:none; } .sgrp td small { font-weight:600; color:var(--muted); margin-left:8px; } .sgrp .car { display:inline-block; width:14px; color:var(--accent-dark); } .sgrp.todo td { background:var(--accent-soft); } .sgrp.low td { background:#f1f3f7; color:#4c5670; } tr.none td { color:var(--muted); padding:12px 14px; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .toolbar input[type=search], .toolbar select { height:36px; border:1px solid var(--border); border-radius:8px; padding:0 11px; background:#fff; font-size:14px; }
+  .toolbar input[type=search] { width:280px; }
+  button.btn { height:36px; padding:0 15px; border-radius:8px; border:1px solid var(--border); background:#fff; font-weight:600; font-size:14px; cursor:pointer; color:var(--text); font-family:inherit; }
+  button.btn:hover { background:#f4f6fb; }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.btn.primary:hover { background:var(--accent-dark); }
+  button.btn.ok { background:var(--ok); border-color:var(--ok); color:#fff; }
+  button.btn.danger { color:var(--bad); border-color:#f0b9c2; }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; }
+  button.btn.small { height:30px; padding:0 11px; font-size:13px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; }
+  table.list { width:100%; border-collapse:collapse; }
+  table.list th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:11px 14px; border-bottom:1px solid var(--border); background:#fafbfe; white-space:nowrap; }
+  table.list td { padding:11px 14px; border-bottom:1px solid #eef1f7; vertical-align:middle; }
+  table.list tr.row { cursor:pointer; }
+  table.list tr.row:hover td { background:#f7f9ff; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:700; white-space:nowrap; }
+  .b-a_valider { background:var(--warn-soft); color:var(--warn); }
+  .b-en_attente { background:#fff1d9; color:#a96100; }
+  .b-a_approuver { background:var(--accent-soft); color:var(--accent-dark); }
+  .b-approuvee { background:var(--ok-soft); color:var(--ok); }
+  .b-rejetee { background:var(--bad-soft); color:var(--bad); }
+  .b-a_determiner { background:#efe6ff; color:#5b2db5; }
+  .b-grey { background:var(--grey-soft); color:#4c5670; }
+  .po-inv { margin-top:10px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:13px; background:#fff; }
+  .po-inv table { width:100%; border-collapse:collapse; margin-top:6px; } .po-inv th { text-align:left; font-size:11.5px; text-transform:uppercase; color:var(--muted); padding:3px 6px; border-bottom:1px solid var(--border); } .po-inv td { padding:4px 6px; border-bottom:1px solid #eef1f7; } .po-inv td.n, .po-inv th.n { text-align:right; font-variant-numeric:tabular-nums; } .po-inv tr.tot td { font-weight:700; border-bottom:none; }
+  .assign-box { border:2px solid #b79cf0; background:#f6f1ff; border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .muted { color:var(--muted); }
+  .empty { padding:46px 20px; text-align:center; color:var(--muted); }
+  .drop { margin-bottom:14px; border:2px dashed #b9c6ea; border-radius:12px; padding:16px; text-align:center; color:var(--muted); background:#fafcff; }
+  .drop.over { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-dark); }
+  .drop label { color:var(--accent-dark); font-weight:700; cursor:pointer; text-decoration:underline; }
+  /* Modales */
+  .overlay { position:fixed; inset:0; background:rgba(14,22,43,.5); z-index:50; display:flex; align-items:flex-start; justify-content:center; overflow:auto; padding:24px 14px; }
+  .modal { background:#fff; border-radius:14px; width:100%; max-width:960px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .modal.narrow { max-width:560px; }
+  .modal.xl { max-width:1520px; }
+  .modal-head { display:flex; align-items:center; gap:12px; padding:14px 22px; border-bottom:1px solid var(--border); }
+  .modal-head h2 { margin:0; font-size:18px; flex:1; }
+  .modal-body { padding:16px 22px; }
+  .modal-foot { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; background:#fafbfe; border-radius:0 0 14px 14px; }
+  .x { background:none; border:none; font-size:22px; cursor:pointer; color:var(--muted); line-height:1; }
+  .split { display:grid; grid-template-columns:minmax(380px,1fr) minmax(520px,1.15fr); gap:20px; align-items:start; }
+  .viewer { position:sticky; top:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#f1f3f8; }
+  .viewer iframe { width:100%; height:80vh; border:none; display:block; }
+  .viewer img { width:100%; display:block; }
+  .grid { display:grid; gap:12px 14px; }
+  .g2 { grid-template-columns:1fr 1fr; }
+  .g3 { grid-template-columns:1fr 1fr 1fr; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; position:relative; }
+  label.f input, label.f select, label.f textarea { border:1px solid var(--border); border-radius:8px; padding:0 10px; height:36px; font-size:14px; font-weight:400; color:var(--text); text-transform:none; letter-spacing:0; background:#fff; font-family:inherit; }
+  label.f textarea { height:auto; padding:8px 10px; resize:vertical; line-height:1.4; }
+  label.f input:disabled, label.f textarea:disabled { background:#f1f3f8; color:#445; }
+  label.f input:focus, label.f textarea:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+  label.f .hint { font-size:12px; font-weight:400; text-transform:none; letter-spacing:0; color:var(--muted); }
+  label.f .hint a { color:var(--accent-dark); cursor:pointer; text-decoration:underline; }
+  h3.sec { margin:18px 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--accent-dark); border-bottom:1px solid var(--border); padding-bottom:6px; }
+  h3.sec:first-child { margin-top:0; }
+  .suggest { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.15); z-index:60; max-height:260px; overflow:auto; margin-top:2px; }
+  .suggest div { padding:8px 12px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text); font-size:14px; }
+  .suggest div:hover, .suggest div.sel { background:var(--accent-soft); }
+  .suggest small { color:var(--muted); margin-left:8px; }
+  .suggest .none { color:var(--muted); cursor:default; }
+  .note { background:var(--accent-soft); border-radius:8px; padding:9px 12px; font-size:13px; color:var(--accent-dark); }
+  .warn { background:var(--warn-soft); color:var(--warn); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  .err { background:var(--bad-soft); color:var(--bad); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  .bud { border:1px solid var(--line, #dbe2f1); border-radius:10px; padding:10px 12px; font-size:13px; margin-top:10px; background:#fafbff; }
+  .bud table { width:100%; border-collapse:collapse; } .bud td { padding:2px 0; } .bud td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .bud .tot td { border-top:1px solid #dbe2f1; font-weight:700; padding-top:5px; }
+  .bud.over { border-color:var(--bad); background:#fdecec; } .bud.over .tot td { color:var(--bad); } .bud.under .tot td { color:var(--ok); }
+  .okbox { background:var(--ok-soft); color:var(--ok); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  table.entry { width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums; }
+  table.entry th { text-align:left; font-size:11.5px; text-transform:uppercase; color:var(--muted); padding:5px 8px; border-bottom:1px solid var(--border); }
+  table.entry td { padding:5px 8px; border-bottom:1px solid #eef1f7; }
+  table.entry td.n, table.entry th.n { text-align:right; }
+  table.entry tr.sep td { border-top:2px solid var(--border); }
+  table.entry tr.tot td { font-weight:700; }
+  ul.timeline { list-style:none; margin:0; padding:0; font-size:13px; }
+  ul.timeline li { padding:6px 0 6px 16px; border-left:2px solid var(--border); position:relative; }
+  ul.timeline li:before { content:''; position:absolute; left:-5px; top:11px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+  .kv { display:grid; grid-template-columns:170px 1fr; gap:6px 12px; font-size:14px; }
+  .kv .k { color:var(--muted); font-weight:600; }
+  #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:#17223b; color:#fff; padding:11px 18px; border-radius:9px; z-index:100; font-size:14px; max-width:90vw; box-shadow:0 8px 30px rgba(0,0,0,.3); }
+  #toast.error { background:var(--bad); }
+  #boot, #auth-gate { display:flex; justify-content:center; padding:80px 20px; color:var(--muted); }
+  .spin { display:inline-block; width:15px; height:15px; border:2px solid #c9d3ee; border-top-color:var(--accent); border-radius:50%; animation:sp .7s linear infinite; vertical-align:-3px; margin-right:6px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (max-width:1000px) { .split { grid-template-columns:1fr; } .viewer { position:static; } .viewer iframe { height:60vh; } .g2,.g3 { grid-template-columns:1fr; } .toolbar input[type=search] { width:100%; } table.list th:nth-child(n+7), table.list td:nth-child(n+7) { display:none; } }
+
+  nav.nav-right { margin-left:0; }
+  .subnav { display:flex; gap:6px; padding:6px 22px; background:#f4f6fb; border-bottom:1px solid var(--border); }
+  .subnav a { font-size:12.5px; font-weight:600; padding:4px 11px; border-radius:6px; color:var(--muted); text-decoration:none; }
+  .subnav a:hover { background:#e9eef8; } .subnav a.active { background:#fff; color:var(--accent-dark); box-shadow:0 0 0 1px var(--border); }
+  .grp-toggle { display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; } .grp-toggle input { width:16px; height:16px; accent-color:var(--accent); }
+  .proj-sec { margin-bottom:24px; } .proj-sec > h2 { font-size:17px; margin:0 0 8px; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; } .proj-sec > h2 small { font-size:12.5px; font-weight:600; color:var(--muted); }
+  tr.pgrp td { background:#eaf0fb; font-weight:800; font-size:13.5px; color:var(--text); border-top:2px solid #cfd9ee; }
+  tr.pgrp td small { font-weight:600; color:var(--muted); margin-left:8px; }
+ .proj-sec > h2 { cursor:pointer; user-select:none; } .proj-sec > h2::before { content:'▾'; font-size:14px; color:var(--muted); width:14px; } .proj-sec.collapsed > h2::before { content:'▸'; } .proj-sec.collapsed > :not(h2) { display:none !important; } .proj-sec.collapsed { margin-bottom:8px; }
+  tr.pgrp td { cursor:pointer; user-select:none; } tr.pgrp td::before { content:'▾ '; color:var(--muted); } tr.pgrp.pg-c td::before { content:'▸ '; } tr.pg-hid { display:none !important; }
+  .stack-prog { font-size:13px; color:var(--muted); margin:6px 0 14px; }
+  /* ===== Mobile (téléphone) ===== */
+  @media (max-width:760px) {
+    html,body { font-size:15px; -webkit-text-size-adjust:100%; }
+    header { flex-wrap:wrap; height:auto; padding:8px 12px 0; gap:6px 10px; }
+    header img.logo { height:26px; }
+    header .app-name { font-size:15px; padding-left:10px; flex:1; border-left:1px solid var(--border); }
+    header .spacer { display:none; }
+    #clerk-user-name { display:none; }
+    header nav:not(.nav-right) { order:5; width:100%; margin:0 -12px; padding:4px 12px 8px; overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+    header nav:not(.nav-right)::-webkit-scrollbar { display:none; }
+    header nav a { white-space:nowrap; padding:8px 13px; font-size:14px; }
+    #nav-dash, #nav-av, #nav-def, #nav-sch, nav.nav-right { display:none !important; }
+    .subnav { padding:6px 12px; overflow-x:auto; }
+    main { padding:12px; }
+    .toolbar { gap:8px; }
+    .toolbar > * { flex:1 1 140px; min-width:0; }
+    .toolbar input[type=search], .toolbar select, .toolbar .btn { width:100%; }
+    .toolbar .spacer { display:none; }
+    input, select, textarea { font-size:16px !important; }
+    button.btn { height:40px; }
+    button.btn.small, .btn.sm { height:34px; }
+    .stats { grid-template-columns:1fr 1fr !important; gap:8px; }
+    .stat { padding:9px 11px; } .stat .val { font-size:17px; }
+    .g2,.g3,.g4,.cards,.iv-grid { grid-template-columns:1fr !important; }
+    .kv { grid-template-columns:1fr; gap:2px 0; } .kv .k { margin-top:6px; }
+    .card.pad { padding:13px; }
+    /* Tableaux -> cartes */
+    table.list, table.list tbody { display:block; width:100%; }
+    table.list thead { display:none; }
+    table.list tr { display:block; }
+    table.list tr.row, table.list tr[data-id] { background:#fff; border:1px solid var(--border); border-radius:12px; margin:0 0 10px; padding:6px 12px; box-shadow:0 1px 2px rgba(23,34,59,.04); }
+    table.list tr.row:active { background:#f4f7ff; }
+    table.list td, table.list th:not(:empty) { display:flex !important; justify-content:space-between; align-items:center; gap:12px; padding:6px 0 !important; border-bottom:1px dashed #e8ecf5; text-align:right; }
+    table.list tr.row td:last-child { border-bottom:none; }
+    table.list td[data-l]:before { content:attr(data-l); color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; text-align:left; flex:none; }
+    table.list td:empty { display:none !important; }
+    table.list td.num { text-align:right; }
+    table.list tr.pgrp { margin:14px 0 6px; } table.list tr.pgrp td { display:block !important; border:none; border-radius:8px; padding:9px 12px !important; text-align:left; }
+    table.list td input[type=checkbox] { width:20px; height:20px; }
+    /* Modales plein écran */
+    .overlay { padding:0; }
+    .modal, .modal.narrow, .modal.xl { max-width:100%; min-height:100vh; border-radius:0; box-shadow:none; }
+    .modal-head { padding:12px 14px; position:sticky; top:0; background:#fff; z-index:2; border-radius:0; }
+    .modal-head h2 { font-size:16px; }
+    .modal-body { padding:12px 14px; overflow-x:auto; }
+    .modal-foot { padding:10px 14px; position:sticky; bottom:0; border-radius:0; }
+    .modal-foot .btn { flex:1 1 auto; }
+    table.entry, table.lines { font-size:12.5px; }
+    .viewer iframe { height:55vh; }
+    #toast { bottom:14px; width:calc(100% - 24px); text-align:center; }
+    .proj-head h1 { font-size:18px; }
+  }
+.navbadge { display:inline-block; min-width:18px; padding:0 5px; margin-left:6px; border-radius:9px; background:#d93025; color:#fff; font-size:11px; font-weight:800; line-height:18px; text-align:center; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div id="boot"><span class="spin"></span> Vérification de la connexion…</div>
+<div id="auth-gate" class="hidden"><div id="clerk-sign-in" style="width:100%;max-width:460px"></div></div>
+
+<div id="app" class="hidden">
+  <header>
+    <img class="logo" src="/exacto-logo.png" alt="Exacto">
+    <span class="app-name">Finance</span>
+    <nav>
+      <a href="/" id="nav-bc">Bons de commande</a>
+      <a href="/factures" id="tab-list" class="active">Factures</a>
+      <a href="/dashboard" id="nav-dash">Suivi budgétaire</a>
+      <a href="/intervenants" id="nav-iv">Intervenants</a>
+      <a href="/changements" id="nav-ch">Demandes de changement</a>
+      <a href="/avenants" id="nav-av">Avenants</a>
+      <a href="/da" id="nav-da">Dessins d'atelier</a>
+      <a href="/qrt" id="nav-qrt">QRT</a>
+      <a href="/fin-chantier" id="nav-fc">Fin de chantier</a>
+      <a href="/deficiences" id="nav-def">Déficiences</a>
+      <a href="/echeancier" id="nav-sch">Échéancier</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-right"><a href="/projets" id="nav-prj">Projets</a><a href="/employes" id="nav-emp" style="display:none">Employés</a><a href="/fournisseurs" id="nav-sup">Conformité</a><a href="/configuration" id="nav-cfg" style="display:none">Configuration</a></nav>
+    <div id="clerk-account"><span id="clerk-user-name"></span><div id="clerk-user-button"></div></div>
+  </header>
+  <div class="subnav hidden" id="subnav"><a href="/">Liste des bons de commande</a><a href="/factures?view=suivi" class="active" id="sn-suivi">Suivi des bons de commande</a></div>
+  <main>
+    <section id="view-list">
+      <div id="drop" class="drop hidden">
+        Glissez des factures ici (PDF, PNG ou JPG — 3 Mo maximum chacune) ou <label for="file-in">choisissez des fichiers</label>
+        <input type="file" id="file-in" accept="application/pdf,image/png,image/jpeg" multiple class="hidden">
+        <div id="drop-status" class="muted" style="margin-top:6px"></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Rechercher (fournisseur, n° facture, projet)…">
+        <select id="f-status">
+          <option value="">Tous les statuts</option>
+          <option value="a_valider">À valider (comptabilité)</option>
+          <option value="a_determiner">À déterminer (projet inconnu)</option>
+          <option value="a_approuver">À approuver (chargé de projet)</option>
+          <option value="en_attente">En attente</option>
+          <option value="approuvee">Approuvées</option>
+          <option value="av_reussi">Comptabilisées (Avantage)</option>
+          <option value="av_echec">Erreur d'export (Avantage)</option>
+          <option value="av_attente">En attente d'export (Avantage)</option>
+          <option value="rejetee">Rejetées</option>
+        </select>
+        <button class="btn hidden" id="btn-det" style="border-color:#b79cf0;color:#5b2db5"></button>
+        <label class="grp-toggle" title="Voir chaque projet l'un sous l'autre"><input type="checkbox" id="grp"> Par projets</label>
+        <span class="spacer"></span>
+        <button class="btn hidden" id="btn-batchdate" title="Changer la date comptable des factures cochées (ex. mois fermé dans Avantage)" disabled>Changer la date comptable…</button>
+        <span class="muted hidden" id="poll-info" style="font-size:12px"></span>
+        <button class="btn hidden" id="btn-poll" title="Lire maintenant la boîte courriel des factures">Vérifier la boîte courriel</button>
+        <button class="btn" id="btn-refresh">Actualiser</button>
+      </div>
+      <div class="card" style="overflow-x:auto"><div id="list"></div></div>
+    </section>
+
+    <section id="view-po" class="hidden">
+      <div class="toolbar"><span class="spacer"></span><label class="grp-toggle" title="Voir chaque projet l'un sous l'autre"><input type="checkbox" id="grp2"> Par projets</label></div>
+      <p class="muted" style="margin:0 0 10px">Montants avant taxes. Factures Monday (avant Finance) + factures Finance approuvées, comparées au montant du bon de commande.</p>
+      <div id="po-list"><div class="empty"><span class="spin"></span> Chargement…</div></div>
+    </section>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="toast" class="hidden"></div>
+
+<script>
+/* =====================================================================
+   Exacto-Finance — Étape B1 : factures fournisseurs
+   Même authentification Clerk que le reste de Finance ; chaque appel envoie le jeton de session à /api/invoices.
+   ===================================================================== */
+const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZXhhY3RvYXBwLmNhJA';
+let clerkInstance = null, appStarted = false;
+const S = { me: null, list: [], projects: [], suppliers: [], projP: null, supP: null, sel: new Set(), assignP: null };
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function money(n) { return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtDate(d) { if (!d) return ''; const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(d); }
+function fmtDT(d) { if (!d) return ''; try { return new Date(d).toLocaleString('fr-CA', { timeZone: 'America/Toronto', dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { return String(d); } }
+function r2(n) { const a = Math.round((Math.abs(n) + Number.EPSILON) * 100) / 100; return n < 0 ? -a : a; }
+function pn(v) { if (v === '' || v == null) return null; const n = Number(String(v).replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : null; }
+function n0(v) { const n = pn(v); return n == null ? 0 : n; }
+function fld(v) { return v == null ? '' : v; }
+
+let toastTimer = null;
+window.__navigating = false;
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '#topbar{position:fixed;left:0;top:0;height:3px;width:0;background:#3860f8;z-index:9999;opacity:0;pointer-events:none;transition:width .4s ease,opacity .2s}#topbar.on{opacity:1;width:80%;transition:width 3s cubic-bezier(.1,.7,.2,1)}';
+  document.head.appendChild(st);
+  const bar = document.createElement('div'); bar.id = 'topbar'; document.body.appendChild(bar);
+  let pend = 0, tm = null, lastUser = 0;
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { lastUser = Date.now(); }, true); });
+  const _f = window.fetch;
+  window.fetch = function (u) {
+    const isApi = typeof u === 'string' && u.indexOf('/api/') === 0 && (Date.now() - lastUser < 1500);
+    if (isApi) { pend++; clearTimeout(tm); tm = setTimeout(function () { if (pend > 0) { bar.classList.add('on');  } }, 120); }
+    const p = _f.apply(this, arguments);
+    if (isApi) { const done = function () { if (--pend <= 0) { pend = 0; clearTimeout(tm); bar.style.width = '100%'; setTimeout(function () { bar.classList.remove('on'); bar.style.width = ''; }, 200); } }; p.then(done, done); }
+    return p;
+  };
+})();
+['beforeunload', 'pagehide'].forEach(function (ev) { window.addEventListener(ev, function () { window.__navigating = true; }); });
+window.addEventListener('pageshow', function () { window.__navigating = false; });
+document.addEventListener('click', function (ev) {
+  const a = ev.target.closest && ev.target.closest('a[href]');
+  if (!a || a.target || a.hasAttribute('download') || ev.ctrlKey || ev.metaKey || ev.shiftKey || a.origin !== location.origin) return;
+  const h = a.getAttribute('href') || ''; if (!h || h[0] === '#') return;
+  window.__navigating = true; setTimeout(function () { window.__navigating = false; }, 4000);
+}, true);
+window.addEventListener('unhandledrejection', function (ev) { if (window.__navigating) ev.preventDefault(); });
+window.__ld = null;
+function loadingModal() { const w = document.createElement('div'); w.className = 'overlay'; w.innerHTML = '<div class="modal" style="max-width:260px;padding:26px;text-align:center"><span class="spin"></span> Chargement…</div>'; document.getElementById('modal-root').appendChild(w); window.__ld = w; return w; }
+function withLoader(fn) { return async function () { const w = loadingModal(); try { return await fn.apply(this, arguments); } finally { if (w.parentNode) w.remove(); if (window.__ld === w) window.__ld = null; } }; }
+openDetail = withLoader(openDetail);
+function toast(msg, isErr) {
+  if (isErr && window.__navigating) return;
+  const t = $('toast'); t.textContent = msg; t.className = isErr ? 'error' : '';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), isErr ? 8000 : 3500);
+}
+
+/* ---------- Clerk ---------- */
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.keys(attrs).forEach(k => s.setAttribute(k, attrs[k]));
+    s.crossOrigin = 'anonymous'; s.onload = resolve;
+    s.onerror = () => reject(new Error('Échec de chargement: ' + attrs.src));
+    document.head.appendChild(s);
+  });
+}
+async function initClerkAuth() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  try {
+    await Promise.all([
+      loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` }),
+      loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY }),
+      loadExternalScript({ src: '/clerk-fr-fr.js' })
+    ]);
+    await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, localization: window.CLERK_LOCALIZATION_FR });
+  } catch (err) {
+    $('boot').innerHTML = '⚠ Impossible de charger Clerk (' + esc(err.message) + '). Vérifiez votre connexion et réessayez.';
+    return;
+  }
+  clerkInstance = window.Clerk;
+  clerkInstance.addListener(({ user }) => {
+    if (user) {
+      $('boot').classList.add('hidden'); $('auth-gate').classList.add('hidden'); $('app').classList.remove('hidden');
+      const btnEl = $('clerk-user-button');
+      if (btnEl && !btnEl.dataset.mounted) { clerkInstance.mountUserButton(btnEl, { appearance: { elements: { userButtonAvatarBox: { width: '26px', height: '26px' } } } }); btnEl.dataset.mounted = '1'; }
+      $('clerk-user-name').textContent = user.fullName || user.firstName || (user.primaryEmailAddress && user.primaryEmailAddress.emailAddress) || '';
+      if (!appStarted) { appStarted = true; start(); }
+    } else {
+      appStarted = false; $('boot').classList.add('hidden'); $('app').classList.add('hidden'); $('auth-gate').classList.remove('hidden');
+      const el = $('clerk-sign-in');
+      if (el && !el.dataset.mounted) { clerkInstance.mountSignIn(el, { appearance: { elements: { rootBox: { width: '100%' }, card: { width: '100%' } } } }); el.dataset.mounted = '1'; }
+    }
+  });
+}
+async function getClerkToken() {
+  for (let i = 0; i < 5; i++) {
+    if (clerkInstance && clerkInstance.session) return await clerkInstance.session.getToken();
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return null;
+}
+async function api(action, params) {
+  let res;
+  try {
+    const token = await getClerkToken();
+    res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') }, body: JSON.stringify(Object.assign({ action }, params || {})) });
+  } catch (e) { if (window.__navigating) return new Promise(function () {}); throw new Error('Impossible de joindre le serveur (' + e.message + ')'); }
+  let json = {};
+  try { json = await res.json(); } catch (e) { throw new Error('Réponse invalide du serveur (HTTP ' + res.status + ')'); }
+  if (!res.ok) { const er = new Error(json.error || ('Erreur serveur (HTTP ' + res.status + ')')); er.code = json.code; throw er; }
+  return json;
+}
+async function fetchFile(id) {
+  const token = await getClerkToken();
+  const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') }, body: JSON.stringify({ action: 'file', id }) });
+  if (!res.ok) { let m = 'Fichier introuvable.'; try { m = (await res.json()).error || m; } catch (e) {} throw new Error(m); }
+  const blob = await res.blob();
+  return { url: URL.createObjectURL(blob), type: blob.type };
+}
+
+/* ---------- Démarrage ---------- */
+function showPollInfo(p) {
+  const el = $('poll-info'); el.classList.remove('hidden');
+  if (!p) { el.innerHTML = '⚠ Aucune lecture de la boîte courriel enregistrée'; el.title = 'La tâche automatique (cron-job.org) n\'a jamais appelé le système, ou la mise à jour n\'est pas déployée.'; return; }
+  const min = Math.round((Date.now() - new Date(p.at).getTime()) / 60000);
+  const old = min > 30;
+  el.innerHTML = (old ? '⚠ ' : '') + 'Dernière lecture ' + (p.via === 'cron' ? 'automatique' : 'manuelle') + ' : ' + (min < 1 ? 'à l’instant' : min < 120 ? 'il y a ' + min + ' min' : fmtDT(p.at)) + (p.unread != null ? ' · ' + p.unread + ' non lu(s)' : '') + (p.errors && p.errors.length ? ' · erreur' : '');
+  el.style.color = old || (p.errors && p.errors.length) ? '#b4540a' : '';
+  el.title = (p.errors && p.errors.length ? 'Erreur : ' + p.errors.join(' | ') + '\n' : '') + p.messages + ' courriel(s) lu(s), ' + p.created + ' facture(s) créée(s), ' + p.skipped + ' ignorée(s).';
+}
+async function start() {
+  try { S.me = await api('me'); }
+  catch (e) { $('list').innerHTML = '<div class="empty"><div class="err" style="display:inline-block">' + esc(e.message) + '</div></div>'; return; }
+  if (S.me.isAccounting) {
+    $('drop').classList.remove('hidden');
+    if (S.me.mailbox) { $('btn-poll').classList.remove('hidden'); showPollInfo(S.me.lastPoll); }
+    S.projP = loadProjects(false); S.supP = loadSuppliers(false);
+  }
+  await reloadList();
+  if (S.me.isAccounting && new URLSearchParams(location.search).get('view') === 'suivi') showTab('po');
+}
+async function loadProjects(refresh) { try { S.projects = (await api('projects', { refresh })).projects; } catch (e) { toast(e.message, true); } }
+async function loadSuppliers(refresh) { try { S.suppliers = (await api('suppliers', { refresh })).suppliers; } catch (e) { toast(e.message, true); } }
+async function reloadList() {
+  $('list').innerHTML = '<div class="empty"><span class="spin"></span> Chargement…</div>';
+  try { S.list = (await api('list')).invoices; renderList(); }
+  catch (e) { $('list').innerHTML = '<div class="empty"><div class="err" style="display:inline-block">' + esc(e.message) + '</div></div>'; }
+}
+
+const STATUS = { a_valider: 'À valider', a_determiner: 'À déterminer', a_approuver: 'À approuver', en_attente: 'En attente', approuvee: 'Approuvée', rejetee: 'Rejetée' };
+function badge(st, x) { if (x && x.legacy && ['approuvee','rejetee'].includes(st)) return '<span class="badge b-recu" title="Importé de Monday — terminé">Traité</span>'; return '<span class="badge b-' + esc(st) + '">' + esc(STATUS[st] || st) + '</span>'; }
+const SP = { reussi: ['SharePoint ✓', 'b-approuvee'], echec: ['SharePoint ✗', 'b-rejetee'], attente: ['SharePoint…', 'b-a_valider'], non_configure: ['SharePoint : non configuré', 'b-grey'] };
+function spBadge(st) { const x = SP[st]; return x ? '<span class="badge ' + x[1] + '">' + x[0] + '</span>' : ''; }
+const AV = { en_attente: ['En attente d\'export', 'b-a_valider'], reussi: ['Comptabilisée ✓', 'b-approuvee'], echec: ['Erreur export ✗', 'b-rejetee'], en_cours: ['Export en cours…', 'b-a_valider'] };
+function avBadge(st) { const x = AV[st]; return x ? '<span class="badge ' + x[1] + '">' + x[0] + '</span>' : ''; }
+function eligibleDate(r) { return ['a_valider', 'a_approuver', 'a_determiner'].includes(r.status) || (r.status === 'approuvee' && ['en_attente', 'echec'].includes(r.avantage_status)); }
+
+function matchStatus(r, st) {
+  if (!st) return true;
+  if (st === 'av_reussi') return r.status === 'approuvee' && r.avantage_status === 'reussi';
+  if (st === 'av_echec') return r.status === 'approuvee' && r.avantage_status === 'echec';
+  if (st === 'av_attente') return r.status === 'approuvee' && (r.avantage_status === 'en_attente' || r.avantage_status === 'en_cours');
+  return r.status === st;
+}
+$('grp').checked = grpOn(); $('grp').addEventListener('change', () => { grpSave($('grp').checked); renderList(); });
+const SORT = { key: '', dir: 1 };
+function sortRows(rows, G) {
+  if (!SORT.key || !G[SORT.key]) return rows;
+  const g = G[SORT.key];
+  return rows.slice().sort((a, b) => { const x = g(a), y = g(b); const c = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'fr', { numeric: true, sensitivity: 'base' }); return c * SORT.dir; });
+}
+function bindSort(root, rerender) {
+  root.querySelectorAll('th[data-sort]').forEach(th => {
+    th.title = 'Trier par cette colonne';
+    if (SORT.key === th.dataset.sort) th.insertAdjacentHTML('beforeend', ' <span class="sarr">' + (SORT.dir > 0 ? '▲' : '▼') + '</span>');
+    th.addEventListener('click', () => { if (SORT.key === th.dataset.sort) SORT.dir = -SORT.dir; else { SORT.key = th.dataset.sort; SORT.dir = 1; } rerender(); });
+  });
+}
+function statCards(cards) {
+  const el = $('stats'); if (!el) return;
+  el.innerHTML = cards.map(c => '<div class="stat' + (c.st ? ' click' : '') + (c.hot ? ' hot' : '') + (c.zero ? ' zero' : '') + '"' + (c.st ? ' data-st="' + c.st + '" title="Filtrer la liste"' : '') + '><div class="lbl">' + c.lbl + '</div><div class="val">' + c.val + '</div><div class="sub">' + (c.sub || '&nbsp;') + '</div></div>').join('');
+  el.querySelectorAll('[data-st]').forEach(d => d.onclick = () => { $('f-status').value = d.dataset.st; renderList(); });
+}
+const INV_GROUPS = [
+  { k: 'a_valider', t: 'À valider (comptabilité)', open: true, todo: true }, { k: 'a_determiner', t: 'À déterminer (projet inconnu)', open: true, todo: true },
+  { k: 'a_approuver', t: 'À approuver (chargé de projet)', open: true, todo: true }, { k: 'av_echec', t: 'Erreur d’export vers Avantage — à corriger', open: true, todo: true },
+  { k: 'en_attente', t: 'En attente (retour automatique à « À approuver »)', open: false }, { k: 'approuvee', t: 'Approuvées', open: false }, { k: 'rejetee', t: 'Rejetées', open: false } ];
+S.gopen = S.gopen || {};
+let FORCE_OPEN = false;
+function invGroup(r) { if (r.status === 'approuvee') return (r.avantage_status === 'echec' && S.me && S.me.isAccounting) ? 'av_echec' : 'approuvee'; return r.status; }
+const grpOpen = g => FORCE_OPEN || (S.gopen[g.k] !== undefined ? S.gopen[g.k] : g.open);
+/** Lignes de la table groupées par statut : ce qu'il y a à faire en haut, approuvées et rejetées repliées en bas. */
+function groupedRows(rows, st, term, fn) {
+  if ($('grp').checked) return rows.map(fn);
+  FORCE_OPEN = !!st || !!term;
+  const out = [], m = {}; rows.forEach(r => (m[invGroup(r)] = m[invGroup(r)] || []).push(r));
+  const sum = a => a.reduce((t, r) => t + (Number(r.total) || 0), 0);
+  if (S.me && !S.me.isAccounting && !m.a_approuver && !st && !term) out.push('<tr class="none"><td colspan="20">✓ Aucune facture à approuver pour le moment.</td></tr>');
+  INV_GROUPS.forEach(g => {
+    const a = m[g.k]; if (!a || !a.length) return;
+    out.push('<tr class="sgrp' + (g.todo ? ' todo' : g.open ? '' : ' low') + '" data-g="' + g.k + '"><td colspan="20"><span class="car"></span>' + g.t + '<small>' + a.length + ' facture(s) · ' + money(sum(a)) + '</small></td></tr>');
+    a.forEach(r => out.push(fn(r)));
+  });
+  return out;
+}
+function applyGroups() {
+  let open = true;
+  $('list').querySelectorAll('tbody > tr').forEach(tr => {
+    if (tr.classList.contains('sgrp')) { const g = INV_GROUPS.find(x => x.k === tr.dataset.g); open = grpOpen(g); tr.querySelector('.car').textContent = open ? '▾' : '▸'; }
+    else if (tr.classList.contains('row')) tr.style.display = open ? '' : 'none';
+  });
+}
+function bindGroups() {
+  $('list').querySelectorAll('tr.sgrp').forEach(tr => tr.addEventListener('click', () => { const g = INV_GROUPS.find(x => x.k === tr.dataset.g); S.gopen[g.k] = !grpOpen(g); applyGroups(); }));
+  applyGroups();
+}
+function renderStats() {
+  const L = S.list || [], acc = S.me && S.me.isAccounting, sum = a => a.reduce((t, r) => t + (Number(r.total) || 0), 0);
+  const by = st => L.filter(r => r.status === st), ap = by('approuvee');
+  const c = (lbl, arr, st, hot) => ({ lbl, val: money(sum(arr)), sub: arr.length + ' facture(s)', st, hot: hot && arr.length > 0, zero: !arr.length });
+  const cards = [];
+  if (acc) cards.push(c('À valider (comptabilité)', by('a_valider'), 'a_valider', true), c('À déterminer (projet inconnu)', by('a_determiner'), 'a_determiner'));
+  cards.push(c('À approuver (chargé de projet)', by('a_approuver'), 'a_approuver', true), c('En attente', by('en_attente'), 'en_attente'), c('Approuvées', ap, 'approuvee'));
+  if (acc) cards.push(c('En attente d’export Avantage', ap.filter(r => r.avantage_status === 'en_attente' || r.avantage_status === 'en_cours'), 'av_attente'), c('Erreur d’export Avantage', ap.filter(r => r.avantage_status === 'echec'), 'av_echec'));
+  cards.push(c('Rejetées', by('rejetee'), 'rejetee'));
+  statCards(cards);
+}
+const INV_SORT = { status: r => r.status, supplier: r => r.supplier_name || '', number: r => r.invoice_number || '', project: r => r.project_number || '', date: r => r.invoice_date || '', adate: r => r.account_date || '', total: r => Number(r.total) || 0, retention: r => Number(r.retention_pct) || 0, po: r => r.po_number || '', avantage: r => r.avantage_status || '', source: r => r.source || '' };
+function renderList() {
+  renderStats();
+  const term = $('q').value.trim().toLowerCase(), st = $('f-status').value, acc = S.me.isAccounting;
+  const nDet = S.list.filter(r => r.status === 'a_determiner').length;
+  const bd = $('btn-det'); bd.classList.toggle('hidden', !nDet || st === 'a_determiner'); bd.textContent = nDet + ' facture(s) à déterminer — choisir le projet';
+  bd.onclick = () => { $('f-status').value = 'a_determiner'; renderList(); };
+  S.sel = new Set(Array.from(S.sel).filter(id => S.list.some(r => r.id === id && eligibleDate(r))));
+  let rows = S.list.filter(r => matchStatus(r, st) &&
+    (!term || [r.supplier_name, r.invoice_number, r.project_number, r.project_name, r.po_number, r.filename].join(' ').toLowerCase().includes(term)));
+  rows = sortRows(rows, INV_SORT);
+  const bb = $('btn-batchdate'); bb.classList.toggle('hidden', !acc); bb.disabled = !S.sel.size; bb.textContent = S.sel.size ? 'Changer la date comptable (' + S.sel.size + ')…' : 'Changer la date comptable…';
+  if (!rows.length) { $('list').innerHTML = '<div class="empty">' + (S.list.length ? 'Aucune facture ne correspond.' : (acc ? 'Aucune facture pour le moment. Téléversez-en une ou attendez les courriels.' : 'Aucune facture à approuver pour le moment.')) + '</div>'; return; }
+  const elig = rows.filter(eligibleDate), allSel = elig.length && elig.every(r => S.sel.has(r.id));
+  $('list').innerHTML = '<table class="list"><thead><tr>' + (acc ? '<th style="width:30px"><input type="checkbox" id="sel-all" title="Cocher toutes les factures modifiables affichées"' + (allSel ? ' checked' : '') + '></th>' : '') +
+    '<th data-sort="status">Statut</th><th data-sort="supplier">Fournisseur</th><th data-sort="number">N° facture</th><th data-sort="project">Projet</th><th data-sort="date">Date</th>' + (acc ? '<th data-sort="adate">Date comptable</th>' : '') + '<th class="num" data-sort="total">Total</th><th class="num" data-sort="retention">Retenue</th><th data-sort="po">Bon de commande</th><th data-sort="avantage">Avantage</th><th data-sort="source">Source</th></tr></thead><tbody>' +
+    groupedRows(rows, st, term, r => '<tr class="row" data-id="' + esc(r.id) + '">' + (acc ? '<td>' + (eligibleDate(r) ? '<input type="checkbox" class="sel" data-id="' + esc(r.id) + '"' + (S.sel.has(r.id) ? ' checked' : '') + '>' : '') + '</td>' : '') +
+      '<td>' + badge(r.status, r) + (r.ocr_status === 'echec' ? ' <span class="badge b-rejetee" title="Lecture automatique échouée">OCR ✗</span>' : '') + '</td>' +
+      '<td><b>' + esc(r.supplier_name || '(à identifier)') + '</b></td><td>' + esc(r.invoice_number || '') + '</td>' +
+      '<td>' + (r.project_number ? esc(r.project_number) + ' <span class="muted">' + esc(r.project_name || '') + '</span>' : '<span class="muted">— aucun —</span>') + '</td>' +
+      '<td>' + esc(fmtDate(r.invoice_date)) + '</td>' + (acc ? '<td>' + esc(fmtDate(r.account_date)) + '</td>' : '') + '<td class="num">' + (r.total == null ? '' : money(r.total)) + '</td>' +
+      '<td class="num">' + (r.retention_pct ? esc(r.retention_pct) + ' %' : '') + '</td>' +
+      '<td>' + esc(r.po_number || '') + '</td><td>' + (r.status === 'approuvee' ? avBadge(r.avantage_status) + (r.avantage_account ? ' <span class="muted">' + esc(r.avantage_account) + '</span>' : '') + (acc && r.avantage_status === 'echec' ? ' <button class="btn small" data-retry="' + esc(r.id) + '">Renvoyer</button>' : '') : '') + '</td>' +
+      '<td>' + (r.source === 'courriel' ? '✉ Courriel' : r.source === 'monday' ? '📋 Monday' : '⬆ Téléversée') + '</td></tr>').join('') + '</tbody></table>';
+  bindSort($('list'), renderList);
+  bindGroups();
+  $('list').querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => openDetail(tr.dataset.id)));
+  if ($('grp').checked) applyGrp($('list'), tr => { const r = S.list.find(x => x.id === tr.dataset.id) || {}; return { key: String(r.project_number || ''), label: r.project_number ? r.project_number + (r.project_name ? ' — ' + r.project_name : '') : '' }; });
+  $('list').querySelectorAll('input.sel').forEach(cb => { cb.addEventListener('click', ev => ev.stopPropagation()); cb.addEventListener('change', () => { if (cb.checked) S.sel.add(cb.dataset.id); else S.sel.delete(cb.dataset.id); renderList(); }); });
+  const sa = $('sel-all'); if (sa) { sa.addEventListener('click', ev => ev.stopPropagation()); sa.addEventListener('change', () => { elig.forEach(r => { if (sa.checked) S.sel.add(r.id); else S.sel.delete(r.id); }); renderList(); }); }
+  $('list').querySelectorAll('[data-retry]').forEach(b => b.addEventListener('click', async ev => {
+    ev.stopPropagation();
+    if (!confirm('Renvoyer cette facture à Avantage ?')) return;
+    b.disabled = true;
+    try { await api('avantageRetry', { id: b.dataset.retry }); toast('Facture remise en attente : le pont la reprendra.'); await reloadList(); }
+    catch (e) { b.disabled = false; toast(e.code === 'check_avantage' ? 'Ouvrez la facture pour confirmer le renvoi (envoi « en cours »).' : e.message, true); }
+  }));
+}
+$('btn-batchdate').addEventListener('click', () => {
+  const ids = Array.from(S.sel); if (!ids.length) return;
+  const m = openModal('<div class="modal-head"><h2>Changer la date comptable</h2><button class="x" data-close>×</button></div><div class="modal-body">' +
+    '<p style="margin-top:0"><b>' + ids.length + '</b> facture(s) sélectionnée(s).</p>' +
+    '<label class="f">Nouvelle date comptable<input type="date" id="bd-date"></label>' +
+    '<p class="muted" style="font-size:13px">À utiliser quand le mois comptable est fermé dans Avantage. Seule la <b>date comptable</b> (celle envoyée à Avantage) change ; la date de la facture du fournisseur reste intacte. Les factures déjà comptabilisées ne sont pas touchées.</p>' +
+    '<div id="bd-err" class="err hidden"></div></div><div class="modal-foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="bd-go">Appliquer</button></div>', 'narrow');
+  m.querySelector('#bd-go').onclick = async ev => {
+    const date = m.querySelector('#bd-date').value;
+    if (!date) { const e = m.querySelector('#bd-err'); e.textContent = 'Choisissez la nouvelle date.'; e.classList.remove('hidden'); return; }
+    ev.target.disabled = true;
+    try { const r = await api('batchAccountDate', { ids, date }); toast(r.updated + ' facture(s) mise(s) à jour' + (r.skipped ? ' · ' + r.skipped + ' ignorée(s) (déjà comptabilisées ou non modifiables)' : '') + '.'); S.sel = new Set(); closeModal(m); await reloadList(); }
+    catch (e) { ev.target.disabled = false; const x = m.querySelector('#bd-err'); x.textContent = e.message; x.classList.remove('hidden'); }
+  };
+});
+$('q').addEventListener('input', renderList);
+$('f-status').addEventListener('change', renderList);
+$('btn-refresh').addEventListener('click', async ev => {
+  ev.target.disabled = true;
+  try { if (S.me.isAccounting) { await Promise.all([loadProjects(true), loadSuppliers(true)]); } await reloadList(); } finally { ev.target.disabled = false; }
+});
+$('btn-poll').addEventListener('click', async ev => {
+  ev.target.disabled = true; const t = ev.target.textContent; ev.target.textContent = 'Lecture…';
+  try {
+    const r = await api('pollNow');
+    showPollInfo({ at: new Date().toISOString(), via: 'manuel', messages: r.messages, created: r.created, skipped: r.skipped, unread: r.unread, errors: r.errors });
+    toast(r.created ? r.created + ' facture(s) reçue(s) par courriel.' : 'Aucune nouvelle facture dans la boîte (' + (r.unread == null ? '?' : r.unread) + ' courriel(s) non lu(s), ' + (r.unreadWithAttachments == null ? '?' : r.unreadWithAttachments) + ' avec pièce jointe).' + (r.errors && r.errors.length ? ' ' + r.errors.join(' · ') : ''), !!(r.errors && r.errors.length && !r.created));
+    await reloadList();
+  } catch (e) { toast(e.message, true); } finally { ev.target.disabled = false; ev.target.textContent = t; }
+});
+
+/* ---------- Onglets ---------- */
+function showTab(name) {
+  $('view-list').classList.toggle('hidden', name !== 'list'); $('view-po').classList.toggle('hidden', name !== 'po');
+  $('tab-list').classList.toggle('active', name === 'list'); $('nav-bc').classList.toggle('active', name === 'po');
+  $('subnav').classList.toggle('hidden', name !== 'po');
+  if (name === 'po') loadPoSummary();
+}
+async function loadPoSummary() {
+  $('po-list').innerHTML = '<div class="empty"><span class="spin"></span> Chargement (lecture de Monday)…</div>';
+  try {
+    S.poSum = (await api('poSummary')).pos; renderPoSummary();
+  } catch (e) { $('po-list').innerHTML = '<div class="empty"><div class="err" style="display:inline-block">' + esc(e.message) + '</div></div>'; }
+}
+function renderPoSummary() {
+  const pos = S.poSum || [];
+  {
+    if (!pos.length) { $('po-list').innerHTML = '<div class="empty">Aucune facture liée à un bon de commande pour le moment.</div>'; return; }
+    $('po-list').innerHTML = '<table class="list"><thead><tr><th>Bon de commande</th><th>Projet</th><th>Fournisseur</th><th class="num">Montant du BC</th><th class="num">Facturé (Monday)</th><th class="num">Approuvé (Finance)</th><th class="num">En cours</th><th class="num">Solde</th></tr></thead><tbody>' +
+      pos.map(x => '<tr><td><b>' + esc(x.poNumber) + '</b>' + (x.known ? '' : ' <span class="badge b-grey" title="Bon introuvable dans Finance et Monday">BC inconnu</span>') + '</td><td>' + esc(x.projectNumber || '') + '</td><td>' + esc(x.supplier || '') + '</td>' +
+        '<td class="num">' + (x.poSubtotal == null ? '—' : money(x.poSubtotal)) + '</td><td class="num">' + (x.mondayInvoiced == null ? '—' : money(x.mondayInvoiced)) + '</td>' +
+        '<td class="num">' + money(x.financeApproved) + '</td><td class="num">' + money(x.financePending) + '</td>' +
+        '<td class="num" style="font-weight:700;color:' + (x.remaining == null ? 'inherit' : (x.over ? 'var(--bad)' : 'var(--ok)')) + '">' + (x.remaining == null ? '—' : (x.over ? 'AU-DESSUS de ' + money(-x.remaining) : money(x.remaining))) + '</td></tr>').join('') + '</tbody></table>';
+  }
+  if ($('grp2').checked) applyGrp($('po-list'), tr => { const n = ((tr.children[1] || {}).textContent || '').trim(); return { key: n, label: n }; });
+}
+$('grp2').checked = grpOn('2'); $('grp2').addEventListener('change', () => { grpSave($('grp2').checked, '2'); renderPoSummary(); });
+
+/* ---------- Regroupement « Par projets » ---------- */
+function applyGrp(root, infoOf) {
+  const tb = root.querySelector('tbody'); if (!tb) return;
+  const ncols = root.querySelectorAll('thead th').length || 8;
+  const m = new Map();
+  Array.from(tb.children).forEach(tr => { const i = infoOf(tr) || { key: '', label: '' }; if (!m.has(i.key)) m.set(i.key, { label: i.label, rows: [] }); m.get(i.key).rows.push(tr); });
+  const keys = Array.from(m.keys()).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+  tb.innerHTML = '';
+  window.__pgOpen = window.__pgOpen || new Set();
+  keys.forEach(k => { const g = m.get(k); const h = document.createElement('tr'); h.className = 'pgrp'; const op = window.__pgOpen.has(k); const rowsOf = g.rows; if (!op) h.classList.add('pg-c'); h.innerHTML = '<td colspan="' + ncols + '">' + esc(g.label || '— Sans projet —') + '<small>' + g.rows.length + ' ligne' + (g.rows.length > 1 ? 's' : '') + '</small></td>'; tb.appendChild(h); g.rows.forEach(r => { if (!op) r.classList.add('pg-hid'); tb.appendChild(r); });
+    h.addEventListener('click', () => { const nowC = !h.classList.contains('pg-c'); h.classList.toggle('pg-c', nowC); rowsOf.forEach(r => r.classList.toggle('pg-hid', nowC)); if (nowC) window.__pgOpen.delete(k); else window.__pgOpen.add(k); }); });
+}
+function GRPK() { return (location.pathname || '').replace(/\.html$/, '').replace(/[^a-z0-9]/gi, '') || 'x'; }
+function grpOn(id) { try { return localStorage.getItem('finGrp:' + GRPK() + (id || '')) === '1'; } catch (e) { return false; } }
+function grpSave(on, id) { try { localStorage.setItem('finGrp:' + GRPK() + (id || ''), on ? '1' : '0'); } catch (e) {} }
+
+function budgetHtml(b, subtotal) {
+  if (!b) return '<div class="muted" style="font-size:12px;margin-top:8px">Bon de commande introuvable (ni dans Finance, ni dans Monday) : aucun suivi du montant.</div>';
+  const sub = Number(String(subtotal == null ? '' : subtotal).replace(/\s/g, '').replace(',', '.')) || 0;
+  const after = Math.round((b.mondayInvoiced + b.financeApproved + sub) * 100) / 100;
+  const rem = Math.round((b.poSubtotal - after) * 100) / 100, over = rem < -0.005;
+  let rows = '<tr><td>Montant du bon de commande (avant taxes)</td><td>' + money(b.poSubtotal) + '</td></tr>' +
+    (b.source === 'monday' ? '<tr><td>Déjà facturé dans Monday</td><td>' + money(b.mondayInvoiced) + '</td></tr>' : '') +
+    '<tr><td>Approuvé dans Finance</td><td>' + money(b.financeApproved) + '</td></tr>' +
+    '<tr><td>Cette facture (sous-total)</td><td>' + money(sub) + '</td></tr>' +
+    '<tr class="tot"><td>' + (over ? 'AU-DESSUS du bon de commande de' : 'Solde du bon après cette facture') + '</td><td>' + money(over ? -rem : rem) + '</td></tr>';
+  let extra = '';
+  if (b.financePending > 0.005) extra += '<div class="muted" style="margin-top:4px">Autres factures en cours de traitement (non comptées) : ' + money(b.financePending) + '</div>';
+  if (b.duplicateInMonday) extra += '<div class="warn" style="margin-top:6px">Une facture « ' + esc(b.duplicateInMonday.number || b.duplicateInMonday.name) + ' » existe aussi dans Monday : elle n\'est pas comptée deux fois.</div>';
+  const poste = (b.budgetLabel || b.glExpense) ? '<div style="margin:4px 0">Poste budgétaire : <b>' + esc(b.budgetLabel || '—') + '</b>' + (b.glExpense ? ' · G/L <b>' + esc(b.glExpense) + '</b>' : '') + '</div>' : '';
+  return '<div class="bud ' + (over ? 'over' : 'under') + '"><b>Bon de commande ' + esc(b.number) + '</b> <span class="muted">(' + (b.source === 'monday' ? 'créé dans Monday' : 'créé dans Finance') + ')</span>' + poste + '<table>' + rows + '</table>' + extra + '</div>';
+}
+function poExtraHtml(cur) {
+  const lines = [];
+  (cur.poInvoices || []).forEach(x => lines.push({ date: x.invoiceDate, supplier: x.supplier, num: x.invoiceNumber, sub: x.subtotal, st: STATUS[x.status] || x.status }));
+  if (cur.budget && cur.budget.mondayInvoices) cur.budget.mondayInvoices.filter(x => x.counted).forEach(x => lines.push({ date: null, supplier: '(Monday)', num: x.number || x.name, sub: x.subtotal, st: x.status || 'Monday' }));
+  const total = Math.round(lines.reduce((t, x) => t + (x.sub || 0), 0) * 100) / 100;
+  const btn = cur.poHasPdf ? '<button class="btn small" type="button" id="b-openpo">Ouvrir le bon de commande</button>'
+    : (cur.poMondayUrl ? '<a class="btn small" style="display:inline-flex;align-items:center;text-decoration:none" href="' + esc(cur.poMondayUrl) + '" target="_blank" rel="noopener">Ouvrir le bon dans Monday</a>' : '<button class="btn small" type="button" disabled title="Bon créé dans Monday : pas de PDF dans Finance">Bon de commande (aucun PDF)</button>');
+  return '<div class="po-inv"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>Autres factures de ce bon de commande</b><span class="spacer"></span>' + btn + '</div>' +
+    (lines.length ? '<table><thead><tr><th>Date de facture</th><th>Fournisseur</th><th>N° facture</th><th class="n">Avant taxes</th><th>Statut</th></tr></thead><tbody>' +
+      lines.map(x => '<tr><td>' + esc(x.date ? fmtDate(x.date) : '—') + '</td><td>' + esc(x.supplier || '') + '</td><td>' + esc(x.num || '') + '</td><td class="n">' + (x.sub == null ? '—' : money(x.sub)) + '</td><td>' + esc(x.st) + '</td></tr>').join('') +
+      '<tr class="tot"><td colspan="3">Total des autres factures</td><td class="n">' + money(total) + '</td><td></td></tr></tbody></table>' : '<div class="muted" style="margin-top:6px">Aucune autre facture liée à ce bon de commande.</div>') + '</div>';
+}
+async function openPoPdf(invoiceId) {
+  const w = window.open('', '_blank');
+  try {
+    const token = await getClerkToken();
+    const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') }, body: JSON.stringify({ action: 'poFile', id: invoiceId }) });
+    if (!res.ok) { let m = 'Bon de commande introuvable.'; try { m = (await res.json()).error || m; } catch (e) {} throw new Error(m); }
+    const url = URL.createObjectURL(await res.blob());
+    if (w) w.location = url; else window.open(url, '_blank');
+  } catch (e) { if (w) w.close(); toast(e.message, true); }
+}
+function cleanDescLive(v) {
+  return String(v || '').replace(/[œŒ]/g, 'oe').replace(/[æÆ]/g, 'ae').replace(/&/g, ' et ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 .\-\/#]/g, '').replace(/\s{2,}/g, ' ').slice(0, 50);
+}
+$('tab-list').onclick = ev => { ev.preventDefault(); showTab('list'); };
+
+/* ---------- Téléversement ---------- */
+function readB64(f) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(new Error('Lecture du fichier impossible.')); r.readAsDataURL(f); }); }
+async function uploadFiles(files) {
+  files = Array.from(files || []);
+  if (!files.length) return;
+  const st = $('drop-status'); let ok = 0, lastId = null;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    st.innerHTML = '<span class="spin"></span> Lecture de la facture ' + (i + 1) + ' / ' + files.length + ' (' + esc(f.name) + ')…';
+    try {
+      if (f.size > 3.2 * 1024 * 1024) throw new Error('plus de 3,2 Mo — compressez-le');
+      const ct = f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : '');
+      const r = await api('upload', { filename: f.name, contentType: ct, dataBase64: await readB64(f) });
+      ok++; lastId = r.id;
+    } catch (e) { toast(f.name + ' : ' + e.message, true); }
+  }
+  st.textContent = ''; $('file-in').value = '';
+  if (ok) toast(ok + ' facture(s) ajoutée(s).');
+  await reloadList();
+  if (ok === 1 && lastId) openDetail(lastId);
+}
+$('file-in').addEventListener('change', ev => uploadFiles(ev.target.files));
+const dz = $('drop');
+['dragenter', 'dragover'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('over'); }));
+['dragleave', 'drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', ev => uploadFiles(ev.dataTransfer.files));
+
+/* ---------- Modales / suggestions ---------- */
+function openModal(html, cls) {
+  if (window.__ld) { if (window.__ld.parentNode) window.__ld.remove(); window.__ld = null; }
+  const wrap = document.createElement('div'); wrap.className = 'overlay';
+  wrap.innerHTML = '<div class="modal ' + (cls || '') + '">' + html + '</div>';
+  $('modal-root').appendChild(wrap);
+  wrap.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(wrap)));
+  return wrap;
+}
+function closeModal(wrap) { if (wrap && wrap._cleanup) wrap._cleanup(); if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap); }
+
+function attachSuggest(input, getItems, onPick) {
+  let box = null, items = [], idx = -1;
+  const close = () => { if (box) { box.remove(); box = null; } };
+  const render = () => {
+    close(); items = getItems(input.value.trim());
+    box = document.createElement('div'); box.className = 'suggest';
+    box.innerHTML = items.length ? items.map((it, i) => '<div data-i="' + i + '">' + esc(it.label) + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</div>').join('') : '<div class="none">Aucun résultat</div>';
+    input.parentNode.appendChild(box); idx = -1;
+    box.querySelectorAll('[data-i]').forEach(d => d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(+d.dataset.i); }));
+  };
+  const pick = i => { const it = items[i]; if (!it) return; close(); onPick(it); };
+  input.addEventListener('input', render); input.addEventListener('focus', render);
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  input.addEventListener('keydown', ev => {
+    if (!box) return;
+    const els = box.querySelectorAll('[data-i]');
+    if (ev.key === 'ArrowDown') { idx = Math.min(idx + 1, els.length - 1); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { idx = Math.max(idx - 1, 0); ev.preventDefault(); }
+    else if (ev.key === 'Enter' && idx >= 0) { ev.preventDefault(); pick(idx); return; }
+    else if (ev.key === 'Escape') { close(); return; }
+    els.forEach((e, i) => e.classList.toggle('sel', i === idx));
+    if (els[idx]) els[idx].scrollIntoView({ block: 'nearest' });
+  });
+}
+
+/* ---------- Écriture comptable (même logique que le serveur) ---------- */
+const GL = { fournisseurs: '21300', retenues: '21310', tpsAchats: '21340', tpsRetenues: '21341', tvqAchats: '21370', tvqRetenues: '21371' };
+function computeEntry(v) {
+  const sub = n0(v.subtotal), tps = n0(v.tps), tvq = n0(v.tvq);
+  const total = (v.total === '' || v.total == null) ? r2(sub + tps + tvq) : n0(v.total);
+  const pct = Math.max(0, Math.min(100, n0(v.retentionPct)));
+  const retention = r2(total * pct / 100), tpsRet = r2(tps * pct / 100), tvqRet = r2(tvq * pct / 100);
+  const tpsAch = r2(tps - tpsRet), tvqAch = r2(tvq - tvqRet), net = r2(total - retention);
+  const lines = [
+    { d: 'Dépense (sous-total avant taxes)', p: v.glExpense || '', a: sub },
+    { d: 'TPS payée sur achats', p: GL.tpsAchats, a: tpsAch },
+    { d: 'TVQ payée sur achats', p: GL.tvqAchats, a: tvqAch }
+  ];
+  if (retention !== 0) { lines.push({ d: 'TPS à payer sur retenues', p: GL.tpsRetenues, a: tpsRet }); lines.push({ d: 'TVQ à payer sur retenues', p: GL.tvqRetenues, a: tvqRet }); }
+  const credits = [{ d: 'Comptes fournisseurs (solde à payer)', p: GL.fournisseurs, a: net }];
+  if (retention !== 0) credits.push({ d: 'Retenues à payer', p: GL.retenues, a: retention });
+  return { total, pct, retention, net, lines, credits, expTps: r2(sub * 0.05), expTvq: r2(sub * 0.09975), sub, tps, tvq };
+}
+function computeChecks(v) {
+  const e = computeEntry(v), out = [];
+  if (v.subtotal === '' || v.subtotal == null) return out;
+  if (Math.abs(e.tps - e.expTps) > 0.02) out.push('TPS facturée ' + money(e.tps) + ' ≠ TPS calculée ' + money(e.expTps) + ' (5 % de ' + money(e.sub) + ') — écart de ' + money(r2(e.tps - e.expTps)) + '.');
+  if (Math.abs(e.tvq - e.expTvq) > 0.02) out.push('TVQ facturée ' + money(e.tvq) + ' ≠ TVQ calculée ' + money(e.expTvq) + ' (9,975 % de ' + money(e.sub) + ') — écart de ' + money(r2(e.tvq - e.expTvq)) + '.');
+  if (v.total !== '' && v.total != null && Math.abs(r2(e.sub + e.tps + e.tvq) - n0(v.total)) > 0.02) out.push('Sous-total + TPS + TVQ = ' + money(r2(e.sub + e.tps + e.tvq)) + ', mais le total de la facture est ' + money(n0(v.total)) + '.');
+  return out;
+}
+function entryHtml(e) {
+  const row = l => '<tr><td>' + esc(l.d) + '</td><td>' + esc(l.p || '—') + '</td><td class="n">' + money(l.a) + '</td></tr>';
+  return '<table class="entry"><thead><tr><th>Débit — description</th><th>Poste</th><th class="n">Montant</th></tr></thead><tbody>' + e.lines.map(row).join('') +
+    '<tr class="tot"><td colspan="2">Total des débits</td><td class="n">' + money(r2(e.lines.reduce((s, l) => s + l.a, 0))) + '</td></tr></tbody>' +
+    '<thead><tr class="sep"><th>Crédit — description</th><th>Poste</th><th class="n">Montant</th></tr></thead><tbody>' + e.credits.map(row).join('') +
+    '<tr class="tot"><td colspan="2">Total des crédits</td><td class="n">' + money(r2(e.credits.reduce((s, l) => s + l.a, 0))) + '</td></tr></tbody></table>' +
+    (e.retention !== 0 ? '<div class="muted" style="margin-top:6px;font-size:12.5px">Retenue = ' + e.pct + ' % du total taxes incluses (' + money(e.total) + ') = ' + money(e.retention) + '. Solde à payer : ' + money(e.net) + '.</div>' : '<div class="muted" style="margin-top:6px;font-size:12.5px">Aucune retenue sur cette facture.</div>');
+}
+
+/* ---------- Détail ---------- */
+const EV = { modifiee_avantage: 'Corrigée après erreur d’export', modifiee_reapprobation: 'Montants modifiés : renvoyée à l’approbation', mise_en_attente: 'Mise en attente', attente_levee: 'Retirée de l’attente', attente_expiree: 'Date d’attente atteinte : à approuver', recue: 'Reçue', ocr_ok: 'Lue automatiquement', ocr_echec: 'Lecture automatique échouée', ocr_non_configure: 'Lecture automatique non configurée', validee: 'Validée par la comptabilité', rappelee: 'Rappelée par la comptabilité', rejetee: 'Rejetée', reouverte: 'Rouverte', approuvee: 'Approuvée par le chargé de projet', refusee: 'Refusée par le chargé de projet', sharepoint_ok: 'Copiée dans SharePoint', sharepoint_echec: 'Échec SharePoint', avantage_pris: 'Prise en charge par Exacto-Bridge', avantage_ok: 'Inscrite dans Avantage', avantage_echec: 'Échec Avantage', avantage_renvoi: 'Remise en attente pour Avantage', a_determiner: 'Classée « à déterminer »', reprise: 'Reprise par la comptabilité', projet_determine: 'Projet déterminé', date_comptable: 'Date comptable modifiée' };
+
+async function openDetail(id) {
+  let v;
+  try { v = (await api('get', { id })).invoice; } catch (e) { toast(e.message, true); return; }
+  const p = v.perms, ed = p.canEdit || p.canFixAvantage;
+  const cur = { supplierId: v.supplier_id || '', projectItemId: v.project_item_id || '', budget: v.po_number ? v.budget : undefined, poInvoices: v.poInvoices || [], poHasPdf: !!v.poHasPdf, poMondayUrl: v.poMondayUrl || null };
+
+  const input = (label, key, val, o) => { o = o || {}; return '<label class="f" ' + (o.style ? 'style="' + o.style + '"' : '') + '>' + label +
+    '<input id="f-' + key + '" type="' + (o.type || 'text') + '" ' + (o.inputmode ? 'inputmode="' + o.inputmode + '" ' : '') + 'value="' + esc(fld(val)) + '" ' + (ed ? '' : 'disabled') + ' ' + (o.ph ? 'placeholder="' + esc(o.ph) + '"' : '') + ' autocomplete="off">' + (o.hint ? '<span class="hint" id="h-' + key + '">' + o.hint + '</span>' : '') + '</label>'; };
+
+  let alerts = '';
+  if (v.status === 'en_attente') alerts += '<div class="warn"><b>En attente jusqu’au ' + esc(fmtDate(v.hold_until)) + '</b>' + (v.hold_note ? ' — ' + esc(v.hold_note) : '') + '. Elle reviendra seule à « À approuver » à cette date.</div>';
+  if (v.reject_note) alerts += '<div class="warn"><b>' + (v.status === 'rejetee' ? 'Rejetée' : 'À corriger') + ' :</b> ' + esc(v.reject_note) + '</div>';
+  if (v.ocr_status === 'echec') alerts += '<div class="err">La lecture automatique a échoué (' + esc(v.ocr_error || 'erreur') + '). Saisissez les champs à la main.</div>';
+  if (v.ocr_status === 'non_configure') alerts += '<div class="warn">Lecture automatique non configurée : saisissez les champs à la main.</div>';
+  if (p.canFixAvantage) alerts += '<div class="note"><b>Erreur d\u2019export Avantage :</b> corrigez les champs ci-dessous. Si les montants (sous-total, taxes, total, retenue) ne changent pas, la facture peut être renvoyée à Avantage sans nouvelle approbation.</div>';
+  if (v.ocr_status === 'ok' && ed) alerts += '<div class="note">Champs lus automatiquement par Claude — vérifiez-les avant de valider.</div>';
+  if (v.duplicates && v.duplicates.length) alerts += '<div class="err"><b>Doublon possible :</b> une facture « ' + esc(v.invoice_number) + ' » existe déjà pour ce fournisseur (' + v.duplicates.map(d => esc(STATUS[d.status] || d.status) + (d.total != null ? ', ' + money(d.total) : '')).join(' ; ') + ').</div>';
+
+  const head = '<div class="modal-head"><h2>Facture ' + esc(v.invoice_number || '(sans numéro)') + ' — ' + esc(v.supplier_name || 'fournisseur à identifier') + ' ' + badge(v.status) + ' ' + (v.status === 'approuvee' ? spBadge(v.sharepoint_status) + ' ' + avBadge(v.avantage_status) : '') + '</h2><button class="x" data-close>×</button></div>';
+
+  const left = '<div class="viewer" id="viewer"><div class="empty"><span class="spin"></span> Chargement du fichier…</div></div>';
+  const cpNames = v.cp_emails ? v.cp_emails.split(',').join(', ') : '';
+  const assignBox = p.canAssign ? '<div class="assign-box"><b>Facture à déterminer</b><div class="muted" style="margin:4px 0 8px">La comptabilité ne sait pas à quel projet va cette facture. Si vous savez, choisissez le projet : elle partira à l\'approbation du chargé de projet.</div>' +
+    '<label class="f">Projet de cette facture<input id="f-assign" placeholder="Rechercher par numéro ou nom…" autocomplete="off"></label><div style="margin-top:8px"><button class="btn primary" id="b-assign" disabled>Attribuer à ce projet</button></div></div>' : '';
+  const right = '<div id="d-form">' + alerts + assignBox +
+    '<h3 class="sec">Fournisseur et projet</h3><div class="grid g2">' +
+      '<label class="f">Fournisseur<input id="f-supplier" value="' + esc(fld(v.supplier_name)) + '" ' + (ed ? '' : 'disabled') + ' placeholder="Rechercher dans Monday…" autocomplete="off"><span class="hint" id="h-supplier">' + (v.supplier_avantage_id ? 'ID Avantage : <b>' + esc(v.supplier_avantage_id) + '</b>' : (v.supplier_id ? '<span style="display:block;margin-top:4px;padding:6px 8px;border-radius:6px;background:#fdecea;color:#b3261e;border:1px solid #f5c2bd;font-weight:600">⚠ Ce fournisseur n\u2019a pas de numéro Avantage : l\u2019export vers Avantage échouera. Faites-le créer dans Avantage (puis synchronisez) ou choisissez la fiche Avantage.</span>' : (ed ? 'Choisissez le fournisseur dans la liste' : ''))) + '</span></label>' +
+      '<label class="f">Projet (obligatoire)<input id="f-project" value="' + esc(v.project_number ? v.project_number + ' — ' + (v.project_name || '') : '') + '" ' + (ed ? '' : 'disabled') + ' placeholder="Rechercher par numéro ou nom…" autocomplete="off"><span class="hint" id="h-project">' + (v.project_item_id ? 'Avantage : <b>' + esc(v.project_avantage || '—') + '</b> · CP : ' + esc(cpNames || 'aucun') : (ed ? 'Choisissez le projet dans la liste' : '')) + '</span></label>' +
+      input('N° de bon de commande', 'po', v.po_number, { ph: 'ex. 25113-044', hint: '<span id="h-po"></span>' }) +
+      input('Description (50 car. max, sans caractères spéciaux)', 'desc', v.description, { hint: '<span id="h-desc"></span>' }) +
+    '</div><div id="d-budget"></div><div id="d-poextra"></div>' +
+    '<h3 class="sec">Facture</h3><div class="grid g3">' +
+      input('N° de facture', 'invnum', v.invoice_number) + input('Date de facture', 'invdate', v.invoice_date, { type: 'date' }) + input('Date comptable', 'accdate', v.account_date, { type: 'date' }) +
+    '</div>' +
+    '<h3 class="sec">Montants</h3><div class="grid g3">' +
+      input('Sous-total ($)', 'subtotal', v.subtotal, { inputmode: 'decimal' }) + input('TPS ($)', 'tps', v.tps, { inputmode: 'decimal', hint: '<span id="ht-tps"></span>' }) + input('TVQ ($)', 'tvq', v.tvq, { inputmode: 'decimal', hint: '<span id="ht-tvq"></span>' }) +
+      input('Total taxes incluses ($)', 'total', v.total, { inputmode: 'decimal' }) +
+      input('Retenue contractuelle (%)', 'ret', v.retention_pct, { inputmode: 'decimal', ph: 'vide = aucune', hint: ed ? 'Laisser vide s\'il n\'y a pas de retenue (ex. 10)' : '' }) +
+      input('Code d\'activité (obligatoire)', 'act', v.activity_code, { ph: 'Rechercher un code ou un poste…', hint: '<span id="h-act">' + (v.budget && v.budget.budgetLabel ? 'Poste budgétaire du BC : ' + esc(v.budget.budgetLabel) : (ed ? 'Choisissez le code dans la liste' : '')) + '</span>' }) +
+      input('Compte G/L de la dépense (selon le code)', 'gl', v.gl_expense, { ph: 'automatique' }) +
+    '</div><div id="d-checks" style="margin-top:10px"></div>' +
+    '<h3 class="sec">Écriture Avantage (aperçu)</h3><div id="d-entry"></div>' +
+    '<h3 class="sec">Commentaire</h3><label class="f"><textarea id="f-comment" rows="2" ' + (ed ? '' : 'disabled') + '>' + esc(fld(v.comment)) + '</textarea></label>' +
+    (v.cp_at ? '<h3 class="sec">Approbation</h3><div class="kv"><span class="k">Chargé de projet</span><span>' + esc(v.cp_user || '') + ' — ' + esc(fmtDT(v.cp_at)) + (v.cp_comment ? '<br><span class="muted">' + esc(v.cp_comment) + '</span>' : '') + '</span></div>' : '') +
+    (v.acct_at ? '<div class="kv" style="margin-top:6px"><span class="k">Validée par</span><span>' + esc(v.acct_user || '') + ' — ' + esc(fmtDT(v.acct_at)) + '</span></div>' : '') +
+    (v.sharepoint_status === 'reussi' && v.sharepoint_url ? '<div class="kv" style="margin-top:6px"><span class="k">SharePoint</span><span><a href="' + esc(v.sharepoint_url) + '" target="_blank" rel="noopener">Ouvrir la copie</a></span></div>' : '') +
+    (v.sharepoint_status === 'echec' ? '<div class="err" style="margin-top:6px">SharePoint : ' + esc(v.sharepoint_error || 'échec') + '</div>' : '') +
+    (v.status === 'approuvee' && v.avantage_status ? '<div class="kv" style="margin-top:6px"><span class="k">Avantage</span><span>' + avBadge(v.avantage_status) + (v.avantage_account ? ' compte <b>' + esc(v.avantage_account) + '</b>' : '') + (v.avantage_status === 'echec' ? '<div class="err" style="margin-top:6px">' + esc(v.avantage_result || 'échec') + '</div>' : '') + (v.avantage_status === 'en_cours' ? '<div class="warn" style="margin-top:6px">Envoi en cours (ou interrompu) : ne renvoyez qu\'après avoir vérifié dans Avantage.</div>' : '') + '</span></div>' : '') +
+    '<h3 class="sec">Historique</h3><ul class="timeline">' + v.events.map(e => '<li><b>' + esc(EV[e.event] || e.event) + '</b> — ' + esc(fmtDT(e.at)) + (e.actor ? ' · ' + esc(e.actor) : '') + (e.detail ? ' · <span class="muted">' + esc(e.detail) + '</span>' : '') + '</li>').join('') + '</ul>' +
+    '<div id="d-req" class="warn hidden" style="margin-top:12px"></div><div id="d-err" class="err hidden" style="margin-top:12px"></div></div>';
+
+  let foot = '<button class="btn" data-close>Fermer</button>';
+  if (p.canEdit) foot += '<button class="btn danger" id="b-reject">Rejeter</button><button class="btn" id="b-save">Enregistrer</button><button class="btn" id="b-det" style="border-color:#b79cf0;color:#5b2db5" title="Projet inconnu : tout le monde pourra choisir le projet">Classer « Facture à déterminer »</button><button class="btn primary" id="b-validate">Valider et envoyer au chargé de projet</button>';
+  if (p.canTakeBack) foot += '<button class="btn" id="b-takeback">Reprendre (retour à valider)</button>';
+  if (p.canDelete) foot += '<button class="btn danger" id="b-delete" title="Supprimer complètement cette facture (fichier et historique)">Supprimer</button>';
+  if (p.canRecall) foot += '<button class="btn" id="b-recall">Rappeler pour correction</button>';
+  if (p.canReopen) foot += '<button class="btn" id="b-reopen">Rouvrir</button>';
+  if (p.canFixAvantage) foot += '<button class="btn" id="b-fixsave">Enregistrer les corrections</button><button class="btn primary" id="b-fixsend" title="Enregistre puis remet la facture en attente pour le pont (aucune nouvelle approbation si les montants sont inchangés)">Enregistrer et renvoyer à Avantage</button>';
+  if (p.canRetryAvantage) foot += '<button class="btn" id="b-av">Renvoyer à Avantage</button>';
+  if (p.canRetrySharepoint) foot += '<button class="btn" id="b-sp">Réessayer SharePoint</button>';
+  if (p.canRelease) foot += '<button class="btn" id="b-release">Remettre à approuver maintenant</button>';
+  if (p.canHold) foot += '<button class="btn" id="b-hold">Mettre en attente…</button>';
+  if (p.canApprove) foot += '<button class="btn danger" id="b-refuse">Refuser…</button><button class="btn ok" id="b-approve">Approuver</button>';
+
+  const m = openModal(head + '<div class="modal-body"><div class="split">' + left + right + '</div></div><div class="modal-foot">' + foot + '</div>', 'xl');
+  const $$ = sel => m.querySelector(sel);
+  const err = msg => { const b = $$('#d-err'); b.textContent = msg; b.classList.remove('hidden'); b.scrollIntoView({ block: 'nearest' }); };
+  const busy = async (btn, fn) => { const t = btn.textContent; btn.disabled = true; try { await fn(); } catch (e) { err(e.message); } finally { btn.disabled = false; btn.textContent = t; } };
+  const refresh = () => { closeModal(m); reloadList(); openDetail(id); };
+
+  // Aperçu du fichier
+  fetchFile(id).then(f => {
+    m._cleanup = () => URL.revokeObjectURL(f.url);
+    $$('#viewer').innerHTML = f.type === 'application/pdf' ? '<iframe src="' + f.url + '"></iframe>' : '<img src="' + f.url + '" alt="Facture">';
+  }).catch(e => { $$('#viewer').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+
+  const val = key => { const el = $$('#f-' + key); return el ? el.value : ''; };
+  const collect = () => ({
+    supplierId: cur.supplierId, supplierName: val('supplier'), projectItemId: cur.projectItemId,
+    poNumber: val('po'), description: val('desc'), invoiceNumber: val('invnum'), invoiceDate: val('invdate'), accountDate: val('accdate'),
+    subtotal: val('subtotal'), tps: val('tps'), tvq: val('tvq'), total: val('total'), retentionPct: val('ret'),
+    glExpense: val('gl'), activityCode: val('act'), comment: val('comment')
+  });
+  const live = () => {
+    const c = collect(), e = computeEntry(c), ck = computeChecks(c);
+    $$('#d-entry').innerHTML = entryHtml(e);
+    $$('#d-checks').innerHTML = ck.map(x => '<div class="warn">⚠ ' + esc(x) + '</div>').join('');
+    if ($$('#d-budget')) $$('#d-budget').innerHTML = (cur.budget !== undefined && val('po')) ? budgetHtml(cur.budget, c.subtotal) : '';
+    if ($$('#d-poextra')) $$('#d-poextra').innerHTML = val('po') ? poExtraHtml(cur) : '';
+    const hd = $$('#h-desc'); if (hd) hd.textContent = val('desc').length + ' / 50';
+    if (ed && $$('#b-validate')) {
+      const miss = [];
+      if (!val('supplier').trim()) miss.push('fournisseur');
+      if (!cur.projectItemId) miss.push('projet');
+      if (!val('invnum').trim()) miss.push('n° de facture');
+      if (!val('invdate')) miss.push('date de facture');
+      if (!val('act').trim()) miss.push("code d'activité");
+      $$('#b-validate').disabled = !!miss.length;
+      $$('#b-validate').title = miss.length ? 'Champs obligatoires manquants : ' + miss.join(', ') : '';
+      const rq = $$('#d-req'); if (rq) { rq.textContent = miss.length ? 'Pour valider, il manque : ' + miss.join(', ') + '.' : ''; rq.classList.toggle('hidden', !miss.length); }
+    }
+    if (ed) {
+      const ht = (id, exp, field) => { const el = $$('#' + id); if (el) el.innerHTML = c.subtotal === '' ? '' : 'calculée : <a data-fill="' + field + '" data-v="' + exp.toFixed(2) + '">' + money(exp) + '</a>'; };
+      ht('ht-tps', e.expTps, 'tps'); ht('ht-tvq', e.expTvq, 'tvq');
+      m.querySelectorAll('[data-fill]').forEach(a => a.onclick = () => { $$('#f-' + a.dataset.fill).value = a.dataset.v; live(); });
+    }
+    return ck;
+  };
+  m.querySelectorAll('input,textarea').forEach(el => el.addEventListener('input', live));
+  live();
+
+  if (ed) {
+    // Suggestions Monday : fournisseur / projet
+    (S.supP || Promise.resolve()).then(() => {
+      if (!S.actP) S.actP = api('activityCodes').then(r => { S.codes = r.codes; }).catch(e => { S.codes = []; });
+      $$('#f-gl').readOnly = true; $$('#f-gl').style.background = '#f1f3f8';
+      attachSuggest($$('#f-act'), term => {
+        const t = term.toLowerCase();
+        return (S.codes || []).filter(x => !t || (x.code + ' ' + x.name + ' ' + x.gl).toLowerCase().includes(t)).slice(0, 40)
+          .map(x => ({ label: x.code + ' — ' + x.name.replace(/^\s*\d+\s*[-–]\s*/, ''), sub: x.gl ? 'G/L ' + x.gl : 'aucun compte G/L associé', x }));
+      }, it => { $$('#f-act').value = it.x.code; $$('#f-gl').value = it.x.gl || ''; live(); });
+      attachSuggest($$('#f-supplier'), term => {
+        const t = term.toLowerCase();
+        return S.suppliers.filter(s => !t || s.name.toLowerCase().includes(t) || (s.avantageId || '').toLowerCase().includes(t)).slice(0, 40)
+          .map(s => ({ id: s.id, label: s.name, sub: (s.avantageId || 'sans ID Avantage') + (s.blacklisted ? ' · LISTE NOIRE' : (!s.active ? ' · inactif' : '')), s }));
+      }, it => {
+        cur.supplierId = it.s.id; $$('#f-supplier').value = it.s.name;
+        $$('#h-supplier').innerHTML = it.s.avantageId ? 'ID Avantage : <b>' + esc(it.s.avantageId) + '</b>' : '<span style="display:block;margin-top:4px;padding:6px 8px;border-radius:6px;background:#fdecea;color:#b3261e;border:1px solid #f5c2bd;font-weight:600">⚠ Ce fournisseur n\u2019a pas de numéro Avantage : l\u2019export vers Avantage échouera. Faites-le créer dans Avantage (puis synchronisez) ou choisissez la fiche Avantage.</span>';
+        if (it.s.blacklisted) toast('Attention : ce fournisseur est sur la liste noire.', true);
+        if (!it.s.avantageId) toast('Attention : ce fournisseur n\u2019a pas de numéro Avantage.', true);
+        live();
+      });
+    });
+    (S.projP || Promise.resolve()).then(() => {
+      attachSuggest($$('#f-project'), term => {
+        const t = term.toLowerCase();
+        return S.projects.filter(x => !t || (x.number + ' ' + x.name).toLowerCase().includes(t)).slice(0, 40)
+          .map(x => ({ id: x.id, label: x.number + ' — ' + x.name, sub: (x.cp && x.cp.length ? 'CP : ' + x.cp.join(', ') : 'aucun CP') + (x.status ? ' · ' + x.status : ''), x }));
+      }, it => {
+        cur.projectItemId = it.x.id; $$('#f-project').value = it.x.number + ' — ' + it.x.name;
+        $$('#h-project').innerHTML = 'Avantage : <b>' + esc(it.x.avantage || '—') + '</b> · CP : ' + esc((it.x.cp || []).join(', ') || 'aucun');
+        live();
+      });
+    });
+    // Description : caractères spéciaux retirés pendant la saisie, 50 caractères maximum
+    $$('#f-desc').setAttribute('maxlength', '50');
+    $$('#f-desc').addEventListener('input', () => { const el = $$('#f-desc'), c = cleanDescLive(el.value); if (c !== el.value) { const pos = el.selectionStart; el.value = c; try { el.setSelectionRange(Math.min(pos, c.length), Math.min(pos, c.length)); } catch (e) {} } });
+    $$('#f-desc').addEventListener('blur', () => { $$('#f-desc').value = $$('#f-desc').value.trim(); live(); });
+    // N° de bon de commande : normalisation, projet automatique et suivi du montant
+    let poTimer = null, poSeq = 0;
+    const onPo = () => {
+      clearTimeout(poTimer);
+      poTimer = setTimeout(async () => {
+        const raw = val('po').trim(); const seq = ++poSeq;
+        if (!raw) { cur.budget = undefined; $$('#h-po').textContent = ''; live(); return; }
+        try {
+          const r = await api('poInfo', { id, poNumber: raw, subtotal: val('subtotal') });
+          if (seq !== poSeq) return;
+          if (r.poNumber && r.poNumber !== raw) $$('#f-po').value = r.poNumber;
+          if (r.budget && r.budget.glExpense && $$('#f-gl')) { $$('#f-gl').value = r.budget.glExpense; }
+          if (r.budget && r.budget.activityCode && $$('#f-act')) { $$('#f-act').value = r.budget.activityCode; }
+          cur.budget = r.budget; cur.poInvoices = r.poInvoices || []; cur.poHasPdf = !!r.poHasPdf; cur.poMondayUrl = r.poMondayUrl || null; $$('#h-po').innerHTML = r.budget ? '' : '<span style="color:var(--warn)">Bon introuvable</span>';
+          if (r.project && !cur.projectItemId) {
+            await (S.projP || Promise.resolve());
+            const x = (S.projects || []).find(z => z.id === r.project.id);
+            cur.projectItemId = r.project.id; $$('#f-project').value = r.project.number + ' — ' + r.project.name;
+            $$('#h-project').innerHTML = x ? 'Avantage : <b>' + esc(x.avantage || '—') + '</b> · CP : ' + esc((x.cp || []).join(', ') || 'aucun') + ' <i>(déduit du bon de commande)</i>' : '<i>(déduit du bon de commande)</i>';
+          }
+          live();
+        } catch (e) { /* silencieux : le suivi est une aide */ }
+      }, 450);
+    };
+    $$('#f-po').addEventListener('input', onPo);
+    // Effacer le lien si le champ est vidé
+    $$('#f-supplier').addEventListener('input', () => { if (!$$('#f-supplier').value.trim()) { cur.supplierId = ''; $$('#h-supplier').textContent = ''; } live(); });
+    $$('#f-project').addEventListener('input', () => { if (!$$('#f-project').value.trim()) { cur.projectItemId = ''; $$('#h-project').textContent = ''; } live(); });
+
+    if (p.canEdit) {
+    $$('#b-save').onclick = ev => busy(ev.target, async () => { await api('save', Object.assign({ id }, collect())); toast('Enregistré.'); refresh(); });
+    $$('#b-validate').onclick = ev => busy(ev.target, async () => {
+      const ck = live();
+      if (ck.length && !confirm('Des écarts ont été détectés :\n\n• ' + ck.join('\n• ') + '\n\nValider quand même ?')) return;
+      let r;
+      try { r = await api('validate', Object.assign({ id }, collect())); }
+      catch (e) {
+        if (e.code === 'duplicate') { if (!confirm(e.message + '\n\nValider quand même ?')) return; r = await api('validate', Object.assign({ id, confirmDuplicate: true }, collect())); }
+        else throw e;
+      }
+      toast(r.warning || 'Validée. Le chargé de projet sera avisé dans le récapitulatif de 13 h.', !!r.warning);
+      closeModal(m); reloadList();
+    });
+    $$('#b-det').onclick = ev => busy(ev.target, async () => {
+      const note = prompt('Classer cette facture « à déterminer » : tout le monde pourra choisir le projet.\nNote (facultatif, ex. « Matériaux livrés au chantier de Trois-Rivières ? ») :', ''); if (note === null) return;
+      await api('toDetermine', Object.assign({ id, note }, collect())); toast('Facture classée « à déterminer ».'); closeModal(m); reloadList();
+    });
+    $$('#b-reject').onclick = ev => busy(ev.target, async () => {
+      const reason = prompt('Rejeter cette facture (doublon, non valide, etc.).\nMotif :'); if (reason === null) return;
+      await api('reject', { id, reason }); toast('Facture rejetée.'); closeModal(m); reloadList();
+    });
+      }
+    if (p.canFixAvantage) {
+      const fix = async (btn, resend) => busy(btn, async () => {
+        let r;
+        try { r = await api('avantageFix', Object.assign({ id, resend }, collect())); }
+        catch (e) {
+          if (e.code !== 'needs_reapproval') throw e;
+          if (!confirm(e.message + '\n\nContinuer ?')) return;
+          r = await api('avantageFix', Object.assign({ id, resend, confirmReapprove: true }, collect()));
+        }
+        toast(r.message || 'Enregistré.'); closeModal(m); reloadList();
+      });
+      $$('#b-fixsave').onclick = ev => fix(ev.target, false);
+      $$('#b-fixsend').onclick = ev => fix(ev.target, true);
+    }
+  }
+  if (p.canDelete) $$('#b-delete').onclick = ev => busy(ev.target, async () => {
+    if (!confirm('Supprimer complètement cette facture ?\nLe fichier et l\'historique seront effacés. Cette action est irréversible.')) return;
+    await api('remove', { id }); toast('Facture supprimée.'); closeModal(m); reloadList();
+  });
+  if (p.canTakeBack) $$('#b-takeback').onclick = ev => busy(ev.target, async () => { await api('takeBack', { id }); toast('Facture reprise : retour à valider.'); refresh(); });
+  if (p.canAssign) {
+    S.assignP = S.assignP || api('projectsForAssign').then(r => r.projects).catch(e => { toast(e.message, true); return []; });
+    let pick = null;
+    S.assignP.then(list => {
+      attachSuggest($$('#f-assign'), term => {
+        const t = term.toLowerCase();
+        return list.filter(x => !t || (x.number + ' ' + x.name).toLowerCase().includes(t)).slice(0, 40)
+          .map(x => ({ id: x.id, label: x.number + ' — ' + x.name, sub: (x.cp && x.cp.length ? 'CP : ' + x.cp.join(', ') : 'aucun CP') + (x.status ? ' · ' + x.status : ''), x }));
+      }, it => { pick = it.x; $$('#f-assign').value = it.x.number + ' — ' + it.x.name; $$('#b-assign').disabled = false; });
+    });
+    $$('#f-assign').addEventListener('input', () => { pick = null; $$('#b-assign').disabled = true; });
+    $$('#b-assign').onclick = ev => busy(ev.target, async () => {
+      if (!pick) return;
+      if (!confirm('Attribuer cette facture au projet ' + pick.number + ' — ' + pick.name + ' ?')) return;
+      const r = await api('assignProject', { id, projectItemId: pick.id });
+      toast(r.message || 'Projet enregistré.'); closeModal(m); await reloadList();
+      if (r.status === 'a_approuver') openDetail(id);
+    });
+  }
+  m.addEventListener('click', ev => { const t = ev.target.closest && ev.target.closest('#b-openpo'); if (t) { ev.preventDefault(); openPoPdf(id); } });
+  if (p.canRecall) $$('#b-recall').onclick = ev => busy(ev.target, async () => { await api('recall', { id }); toast('Facture rappelée.'); refresh(); });
+  if (p.canReopen) $$('#b-reopen').onclick = ev => busy(ev.target, async () => { await api('reopen', { id }); toast('Facture rouverte.'); refresh(); });
+  if (p.canRetryAvantage) $$('#b-av').onclick = ev => busy(ev.target, async () => {
+    try { await api('avantageRetry', { id }); }
+    catch (e) {
+      if (e.code === 'check_avantage') { if (!confirm(e.message + '\n\nJ\'ai vérifié : elle N\'EST PAS dans Avantage. Renvoyer ?')) return; await api('avantageRetry', { id, confirmCheckedAvantage: true }); }
+      else throw e;
+    }
+    toast('Facture remise en attente : le pont la reprendra.'); refresh();
+  });
+  if (p.canRetrySharepoint) $$('#b-sp').onclick = ev => busy(ev.target, async () => { const r = await api('sharepointRetry', { id }); toast(r.status === 'reussi' ? 'Copiée dans SharePoint.' : (r.error || 'Statut : ' + r.status), r.status !== 'reussi'); refresh(); });
+  if (p.canHold) $$('#b-hold').onclick = ev => busy(ev.target, async () => {
+    const d = new Date(); d.setDate(d.getDate() + 14); const def = d.toISOString().slice(0, 10);
+    const until = prompt('Mettre cette facture en attente.\nDate de retour automatique à « À approuver » (AAAA-MM-JJ) :', def); if (until === null) return;
+    const note = prompt('Raison (facultatif — ex. en attente d\u2019un crédit du fournisseur) :', ''); if (note === null) return;
+    await api('hold', { id, until: until.trim(), note }); toast('Facture mise en attente jusqu\u2019au ' + until.trim() + '.'); closeModal(m); reloadList();
+  });
+  if (p.canRelease) $$('#b-release').onclick = ev => busy(ev.target, async () => { await api('release', { id }); toast('Facture remise à approuver.'); closeModal(m); reloadList(); });
+  if (p.canApprove) {
+    $$('#b-approve').onclick = ev => busy(ev.target, async () => {
+      const bd = v.budget ? (v.budget.over ? '\n⚠ AU-DESSUS du BC ' + v.budget.number + ' de ' + money(v.budget.overBy) : '\nSolde du BC ' + v.budget.number + ' après approbation : ' + money(v.budget.remaining)) : '';
+      const c = prompt('Approuver cette facture (' + money(v.total) + ', projet ' + v.project_number + ').' + bd + '\nCommentaire (facultatif) :', ''); if (c === null) return;
+      let r;
+      try { r = await api('approve', { id, comment: c }); }
+      catch (e) {
+        if (e.code === 'over_budget') { if (!confirm(e.message + '\n\nApprouver quand même ?')) return; r = await api('approve', { id, comment: c, confirmOver: true }); }
+        else throw e;
+      }
+      toast('Facture approuvée.' + (r.sharepoint === 'echec' ? ' (copie SharePoint en échec : réessayez)' : '')); closeModal(m); reloadList();
+    });
+    $$('#b-refuse').onclick = ev => busy(ev.target, async () => {
+      const c = prompt('Refuser cette facture : elle retournera à la comptabilité.\nMotif (obligatoire) :'); if (c === null) return;
+      await api('refuse', { id, comment: c }); toast('Facture refusée et retournée à la comptabilité.'); closeModal(m); reloadList();
+    });
+  }
+}
+
+initClerkAuth();
+
+(function(){var a=document.getElementById('nav-cfg');if(!a)return;var tries=0;
+function show(){a.style.display='';var e=document.getElementById('nav-emp');if(e)e.style.display='';}
+async function go(){try{var c=window.Clerk;if(!c||!c.session){if(++tries<120)return setTimeout(go,500);return show();}
+var k='finRole:'+(c.user&&c.user.id),ch=sessionStorage.getItem(k);if(ch==='1')return show();if(ch==='0')return;
+var t=await c.session.getToken();var r=await fetch('/api/invoices',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify({action:'me'})});
+var j=await r.json();var ok=!!(j.isAdmin||j.isAccounting);sessionStorage.setItem(k,ok?'1':'0');if(ok)show();}catch(e){show();}}
+go();})();
+</script>
+<script>
+/* ===== Mobile : étiquettes de cartes + pages réservées au poste de travail ===== */
+(function () {
+  var mq = window.matchMedia ? window.matchMedia('(max-width:760px)') : null;
+  var isMob = function () { return mq && mq.matches; };
+  if (isMob() && /^\/(dashboard|fournisseurs|configuration)\/?$/.test(location.pathname)) { location.replace('/'); return; }
+  function label() {
+    if (!isMob()) return;
+    document.querySelectorAll('table.list').forEach(function (t) {
+      var ths = t.querySelectorAll('thead th'); if (!ths.length) return;
+      t.querySelectorAll('tbody tr').forEach(function (tr) {
+        if (tr.getAttribute('data-lb') === '1' || tr.classList.contains('pgrp')) return;
+        var tds = tr.children; if (tds.length < 2) return;
+        for (var i = 0; i < tds.length && i < ths.length; i++) { var l = (ths[i].textContent || '').trim(); if (l && !tds[i].hasAttribute('data-l')) tds[i].setAttribute('data-l', l); }
+        tr.setAttribute('data-lb', '1');
+      });
+    });
+  }
+  var pend = false;
+  new MutationObserver(function () { if (pend) return; pend = true; setTimeout(function () { pend = false; label(); }, 60); }).observe(document.documentElement, { childList: true, subtree: true });
+  label();
+})();
+</script>
+<script>
+(function(){var a=document.getElementById('nav-sch');if(!a)return;var tries=0;
+function paint(n){var o=a.querySelector('.navbadge');if(o)o.remove();if(n>0){var s=document.createElement('span');s.className='navbadge';s.textContent=n;s.title=n+' projet(s) en cours sans échéancier envoyé depuis 30 jours';a.appendChild(s);}}
+async function go(){try{var c=window.Clerk;if(!c||!c.session){if(++tries<120)return setTimeout(go,500);return;}
+var k='finSchBadge',ch=null;try{ch=JSON.parse(sessionStorage.getItem(k)||'null');}catch(e){}
+if(ch&&Date.now()-ch.at<600000)return paint(ch.n);
+var t=await c.session.getToken();var r=await fetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify({action:'badge'})});
+var j=await r.json();if(typeof j.count==='number'){sessionStorage.setItem(k,JSON.stringify({at:Date.now(),n:j.count}));paint(j.count);}}catch(e){}}
+go();})();
+</script>
+</body>
+</html>

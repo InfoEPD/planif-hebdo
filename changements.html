@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exacto-Finance — Demandes de changement</title>
+<link rel="icon" type="image/png" href="/exacto-icon.png">
+<style>
+  :root {
+    --bg:#f3f5fa; --panel:#ffffff; --border:#dbe1ee; --text:#17223b; --muted:#6a7691;
+    --accent:#2f5bea; --accent-dark:#2347c0; --accent-soft:#e8eeff; --ok:#12805c; --ok-soft:#dff5ec;
+    --warn:#a96100; --warn-soft:#fff1d9; --bad:#c0263d; --bad-soft:#fde4e8; --grey-soft:#e9ecf3;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif; font-size:14px; }
+  .hidden { display:none !important; }
+  header { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:18px; padding:0 22px; height:58px; position:sticky; top:0; z-index:20; }
+  header img.logo { height:30px; }
+  header .app-name { font-weight:700; font-size:16px; color:var(--text); border-left:1px solid var(--border); padding-left:16px; }
+  nav { display:flex; gap:4px; margin-left:12px; }
+  nav button, nav a { background:none; border:none; padding:8px 14px; border-radius:7px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; text-decoration:none; font-family:inherit; }
+  nav button.active, nav a.active { background:var(--accent-soft); color:var(--accent-dark); }
+  .spacer { flex:1; }
+  #clerk-account { display:flex; align-items:center; gap:8px; }
+  #clerk-user-name { font-size:12.5px; color:var(--muted); font-weight:600; }
+  main { max-width:1360px; margin:0 auto; padding:22px; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .toolbar input[type=search], .toolbar select { height:36px; border:1px solid var(--border); border-radius:8px; padding:0 11px; background:#fff; font-size:14px; }
+  .toolbar input[type=search] { width:280px; }
+  button.btn { height:36px; padding:0 15px; border-radius:8px; border:1px solid var(--border); background:#fff; font-weight:600; font-size:14px; cursor:pointer; color:var(--text); font-family:inherit; }
+  button.btn:hover { background:#f4f6fb; }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.btn.primary:hover { background:var(--accent-dark); }
+  button.btn.ok { background:var(--ok); border-color:var(--ok); color:#fff; }
+  button.btn.danger { color:var(--bad); border-color:#f0b9c2; }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; }
+  button.btn.small { height:30px; padding:0 11px; font-size:13px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; }
+  table.list { width:100%; border-collapse:collapse; }
+  table.list th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:11px 14px; border-bottom:1px solid var(--border); background:#fafbfe; white-space:nowrap; }
+  table.list td { padding:11px 14px; border-bottom:1px solid #eef1f7; vertical-align:middle; }
+  table.list tr.row { cursor:pointer; }
+  table.list tr.row:hover td { background:#f7f9ff; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:700; white-space:nowrap; }
+  .b-a_valider { background:var(--warn-soft); color:var(--warn); }
+  .b-a_approuver { background:var(--accent-soft); color:var(--accent-dark); }
+  .b-approuvee { background:var(--ok-soft); color:var(--ok); }
+  .b-rejetee { background:var(--bad-soft); color:var(--bad); }
+  .b-a_determiner { background:#efe6ff; color:#5b2db5; }
+  .b-grey { background:var(--grey-soft); color:#4c5670; }
+  .po-inv { margin-top:10px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:13px; background:#fff; }
+  .po-inv table { width:100%; border-collapse:collapse; margin-top:6px; } .po-inv th { text-align:left; font-size:11.5px; text-transform:uppercase; color:var(--muted); padding:3px 6px; border-bottom:1px solid var(--border); } .po-inv td { padding:4px 6px; border-bottom:1px solid #eef1f7; } .po-inv td.n, .po-inv th.n { text-align:right; font-variant-numeric:tabular-nums; } .po-inv tr.tot td { font-weight:700; border-bottom:none; }
+  .assign-box { border:2px solid #b79cf0; background:#f6f1ff; border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .muted { color:var(--muted); }
+  .empty { padding:46px 20px; text-align:center; color:var(--muted); }
+  .drop { margin-bottom:14px; border:2px dashed #b9c6ea; border-radius:12px; padding:16px; text-align:center; color:var(--muted); background:#fafcff; }
+  .drop.over { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-dark); }
+  .drop label { color:var(--accent-dark); font-weight:700; cursor:pointer; text-decoration:underline; }
+  /* Modales */
+  .overlay { position:fixed; inset:0; background:rgba(14,22,43,.5); z-index:50; display:flex; align-items:flex-start; justify-content:center; overflow:auto; padding:24px 14px; }
+  .modal { background:#fff; border-radius:14px; width:100%; max-width:960px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .modal.narrow { max-width:560px; }
+  .modal.xl { max-width:1520px; }
+  .modal-head { display:flex; align-items:center; gap:12px; padding:14px 22px; border-bottom:1px solid var(--border); }
+  .modal-head h2 { margin:0; font-size:18px; flex:1; }
+  .modal-body { padding:16px 22px; }
+  .modal-foot { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; background:#fafbfe; border-radius:0 0 14px 14px; }
+  .x { background:none; border:none; font-size:22px; cursor:pointer; color:var(--muted); line-height:1; }
+  .split { display:grid; grid-template-columns:minmax(380px,1fr) minmax(520px,1.15fr); gap:20px; align-items:start; }
+  .viewer { position:sticky; top:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#f1f3f8; }
+  .viewer iframe { width:100%; height:80vh; border:none; display:block; }
+  .viewer img { width:100%; display:block; }
+  .grid { display:grid; gap:12px 14px; }
+  .g2 { grid-template-columns:1fr 1fr; }
+  .g3 { grid-template-columns:1fr 1fr 1fr; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; position:relative; }
+  label.f input, label.f select, label.f textarea { border:1px solid var(--border); border-radius:8px; padding:0 10px; height:36px; font-size:14px; font-weight:400; color:var(--text); text-transform:none; letter-spacing:0; background:#fff; font-family:inherit; }
+  label.f textarea { height:auto; padding:8px 10px; resize:vertical; line-height:1.4; }
+  label.f input:disabled, label.f textarea:disabled { background:#f1f3f8; color:#445; }
+  label.f input:focus, label.f textarea:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+  label.f .hint { font-size:12px; font-weight:400; text-transform:none; letter-spacing:0; color:var(--muted); }
+  label.f .hint a { color:var(--accent-dark); cursor:pointer; text-decoration:underline; }
+  h3.sec { margin:18px 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--accent-dark); border-bottom:1px solid var(--border); padding-bottom:6px; }
+  h3.sec:first-child { margin-top:0; }
+  .suggest { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.15); z-index:60; max-height:260px; overflow:auto; margin-top:2px; }
+  .suggest div { padding:8px 12px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text); font-size:14px; }
+  .suggest div:hover, .suggest div.sel { background:var(--accent-soft); }
+  .suggest small { color:var(--muted); margin-left:8px; }
+  .suggest .none { color:var(--muted); cursor:default; }
+  .note { background:var(--accent-soft); border-radius:8px; padding:9px 12px; font-size:13px; color:var(--accent-dark); }
+  .warn { background:var(--warn-soft); color:var(--warn); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  .err { background:var(--bad-soft); color:var(--bad); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  .bud { border:1px solid var(--line, #dbe2f1); border-radius:10px; padding:10px 12px; font-size:13px; margin-top:10px; background:#fafbff; }
+  .bud table { width:100%; border-collapse:collapse; } .bud td { padding:2px 0; } .bud td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .bud .tot td { border-top:1px solid #dbe2f1; font-weight:700; padding-top:5px; }
+  .bud.over { border-color:var(--bad); background:#fdecec; } .bud.over .tot td { color:var(--bad); } .bud.under .tot td { color:var(--ok); }
+  .okbox { background:var(--ok-soft); color:var(--ok); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:8px; }
+  table.entry { width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums; }
+  table.entry th { text-align:left; font-size:11.5px; text-transform:uppercase; color:var(--muted); padding:5px 8px; border-bottom:1px solid var(--border); }
+  table.entry td { padding:5px 8px; border-bottom:1px solid #eef1f7; }
+  table.entry td.n, table.entry th.n { text-align:right; }
+  table.entry tr.sep td { border-top:2px solid var(--border); }
+  table.entry tr.tot td { font-weight:700; }
+  ul.timeline { list-style:none; margin:0; padding:0; font-size:13px; }
+  ul.timeline li { padding:6px 0 6px 16px; border-left:2px solid var(--border); position:relative; }
+  ul.timeline li:before { content:''; position:absolute; left:-5px; top:11px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+  .kv { display:grid; grid-template-columns:170px 1fr; gap:6px 12px; font-size:14px; }
+  .kv .k { color:var(--muted); font-weight:600; }
+  #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:#17223b; color:#fff; padding:11px 18px; border-radius:9px; z-index:100; font-size:14px; max-width:90vw; box-shadow:0 8px 30px rgba(0,0,0,.3); }
+  #toast.error { background:var(--bad); }
+  #boot, #auth-gate { display:flex; justify-content:center; padding:80px 20px; color:var(--muted); }
+  .spin { display:inline-block; width:15px; height:15px; border:2px solid #c9d3ee; border-top-color:var(--accent); border-radius:50%; animation:sp .7s linear infinite; vertical-align:-3px; margin-right:6px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (max-width:1000px) { .split { grid-template-columns:1fr; } .viewer { position:static; } .viewer iframe { height:60vh; } .g2,.g3 { grid-template-columns:1fr; } .toolbar input[type=search] { width:100%; } table.list th:nth-child(n+7), table.list td:nth-child(n+7) { display:none; } }
+
+  .navbadge { display:inline-block; min-width:18px; padding:0 5px; margin-left:6px; border-radius:9px; background:#d93025; color:#fff; font-size:11px; font-weight:800; line-height:18px; text-align:center; vertical-align:middle; }
+  nav.nav-right { margin-left:0; }
+  .subnav { display:flex; gap:6px; padding:6px 22px; background:#f4f6fb; border-bottom:1px solid var(--border); }
+  .subnav a { font-size:12.5px; font-weight:600; padding:4px 11px; border-radius:6px; color:var(--muted); text-decoration:none; }
+  .subnav a:hover { background:#e9eef8; } .subnav a.active { background:#fff; color:var(--accent-dark); box-shadow:0 0 0 1px var(--border); }
+  .grp-toggle { display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; } .grp-toggle input { width:16px; height:16px; accent-color:var(--accent); }
+  .proj-sec { margin-bottom:24px; } .proj-sec > h2 { font-size:17px; margin:0 0 8px; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; } .proj-sec > h2 small { font-size:12.5px; font-weight:600; color:var(--muted); }
+  tr.pgrp td { background:#eaf0fb; font-weight:800; font-size:13.5px; color:var(--text); border-top:2px solid #cfd9ee; }
+  tr.pgrp td small { font-weight:600; color:var(--muted); margin-left:8px; }
+ .proj-sec > h2 { cursor:pointer; user-select:none; } .proj-sec > h2::before { content:'▾'; font-size:14px; color:var(--muted); width:14px; } .proj-sec.collapsed > h2::before { content:'▸'; } .proj-sec.collapsed > :not(h2) { display:none !important; } .proj-sec.collapsed { margin-bottom:8px; }
+  tr.pgrp td { cursor:pointer; user-select:none; } tr.pgrp td::before { content:'▾ '; color:var(--muted); } tr.pgrp.pg-c td::before { content:'▸ '; } tr.pg-hid { display:none !important; }
+  .pbar { display:flex; height:16px; border-radius:8px; overflow:hidden; background:var(--grey-soft); margin:8px 0 6px; } .pbar span { display:block; height:100%; transition:width .3s; }
+  .plegend { display:flex; gap:16px; font-size:12.5px; color:var(--muted); flex-wrap:wrap; } .plegend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .mini-prog { display:inline-flex; align-items:center; gap:8px; min-width:200px; } .mini-prog .pbar { width:140px; height:10px; margin:0; border-radius:5px; } .mini-prog em { font-style:normal; font-size:12.5px; font-weight:600; color:var(--muted); white-space:nowrap; }
+  .stack-prog { font-size:13px; color:var(--muted); margin:6px 0 14px; }
+  /* ===== Mobile (téléphone) ===== */
+  @media (max-width:760px) {
+    html,body { font-size:15px; -webkit-text-size-adjust:100%; }
+    header { flex-wrap:wrap; height:auto; padding:8px 12px 0; gap:6px 10px; }
+    header img.logo { height:26px; }
+    header .app-name { font-size:15px; padding-left:10px; flex:1; border-left:1px solid var(--border); }
+    header .spacer { display:none; }
+    #clerk-user-name { display:none; }
+    header nav:not(.nav-right) { order:5; width:100%; margin:0 -12px; padding:4px 12px 8px; overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+    header nav:not(.nav-right)::-webkit-scrollbar { display:none; }
+    header nav a { white-space:nowrap; padding:8px 13px; font-size:14px; }
+    #nav-dash, #nav-av, #nav-def, #nav-sch, nav.nav-right { display:none !important; }
+    .subnav { padding:6px 12px; overflow-x:auto; }
+    main { padding:12px; }
+    .toolbar { gap:8px; }
+    .toolbar > * { flex:1 1 140px; min-width:0; }
+    .toolbar input[type=search], .toolbar select, .toolbar .btn { width:100%; }
+    .toolbar .spacer { display:none; }
+    input, select, textarea { font-size:16px !important; }
+    button.btn { height:40px; }
+    button.btn.small, .btn.sm { height:34px; }
+    .stats { grid-template-columns:1fr 1fr !important; gap:8px; }
+    .stat { padding:9px 11px; } .stat .val { font-size:17px; }
+    .g2,.g3,.g4,.cards,.iv-grid { grid-template-columns:1fr !important; }
+    .kv { grid-template-columns:1fr; gap:2px 0; } .kv .k { margin-top:6px; }
+    .card.pad { padding:13px; }
+    /* Tableaux -> cartes */
+    table.list, table.list tbody { display:block; width:100%; }
+    table.list thead { display:none; }
+    table.list tr { display:block; }
+    table.list tr.row, table.list tr[data-id] { background:#fff; border:1px solid var(--border); border-radius:12px; margin:0 0 10px; padding:6px 12px; box-shadow:0 1px 2px rgba(23,34,59,.04); }
+    table.list tr.row:active { background:#f4f7ff; }
+    table.list td, table.list th:not(:empty) { display:flex !important; justify-content:space-between; align-items:center; gap:12px; padding:6px 0 !important; border-bottom:1px dashed #e8ecf5; text-align:right; }
+    table.list tr.row td:last-child { border-bottom:none; }
+    table.list td[data-l]:before { content:attr(data-l); color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; text-align:left; flex:none; }
+    table.list td:empty { display:none !important; }
+    table.list td.num { text-align:right; }
+    table.list tr.pgrp { margin:14px 0 6px; } table.list tr.pgrp td { display:block !important; border:none; border-radius:8px; padding:9px 12px !important; text-align:left; }
+    table.list td input[type=checkbox] { width:20px; height:20px; }
+    /* Modales plein écran */
+    .overlay { padding:0; }
+    .modal, .modal.narrow, .modal.xl { max-width:100%; min-height:100vh; border-radius:0; box-shadow:none; }
+    .modal-head { padding:12px 14px; position:sticky; top:0; background:#fff; z-index:2; border-radius:0; }
+    .modal-head h2 { font-size:16px; }
+    .modal-body { padding:12px 14px; overflow-x:auto; }
+    .modal-foot { padding:10px 14px; position:sticky; bottom:0; border-radius:0; }
+    .modal-foot .btn { flex:1 1 auto; }
+    table.entry, table.lines { font-size:12.5px; }
+    .viewer iframe { height:55vh; }
+    #toast { bottom:14px; width:calc(100% - 24px); text-align:center; }
+    .proj-head h1 { font-size:18px; }
+  }
+  .proj-head { display:flex; align-items:center; gap:12px; margin:4px 0 12px; flex-wrap:wrap; } .proj-head h1 { margin:0; font-size:21px; }
+  .card.pad { padding:16px 18px; margin-bottom:14px; } .card.pad h3 { margin:0 0 10px; font-size:15px; }
+  .g3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; } .g4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:1000px) { .g3,.g4 { grid-template-columns:1fr 1fr; } }
+  nav a.active { background:var(--accent-soft); color:var(--accent-dark); }
+  .lnk-add { color:var(--accent-dark); font-weight:700; cursor:pointer; font-size:13px; } .lnk-add:hover { text-decoration:underline; }
+  .btn.sm { height:28px; padding:0 10px; font-size:12.5px; }
+  table.lines th, table.lines td { padding:6px 6px; } table.lines input, table.lines select { width:100%; height:32px; border:1px solid var(--border); border-radius:7px; padding:0 7px; font-size:13.5px; font-family:inherit; background:#fff; }
+  table.lines input.num { text-align:right; min-width:70px; } table.lines td.amt { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .btn-x { border:none; background:none; color:var(--bad); font-size:20px; cursor:pointer; }
+  .tot-wrap { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; margin-top:12px; flex-wrap:wrap; }
+  table.tot { border-collapse:collapse; min-width:360px; font-size:14px; } table.tot td { padding:4px 10px; } table.tot td:last-child { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  table.tot tr.big td { font-weight:800; font-size:15.5px; border-top:2px solid var(--border); padding-top:7px; }
+  table.tot input { width:70px; height:28px; border:1px solid var(--border); border-radius:6px; text-align:right; padding:0 6px; }
+  .docbox { border:1px solid var(--border); border-radius:10px; padding:10px 12px; } .docbox h4 { margin:0 0 6px; font-size:13px; }
+  .dropzone { border:2px dashed var(--border); border-radius:10px; padding:10px; text-align:center; margin-top:8px; font-size:13px; cursor:pointer; transition:.15s; } .dropzone.over { border-color:var(--accent); background:var(--accent-soft); }
+  .fileline { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; margin-top:6px; font-size:13px; }
+  .fileline a { color:var(--accent-dark); cursor:pointer; font-weight:600; word-break:break-all; }
+  .cmt { border-left:3px solid var(--accent); background:#f7f9fd; padding:7px 12px; margin-bottom:8px; border-radius:0 8px 8px 0; font-size:13.5px; white-space:pre-wrap; } .cmt small { display:block; color:var(--muted); margin-bottom:2px; }
+  .g-add { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; } .g-add input { height:34px; border:1px solid var(--border); border-radius:8px; padding:0 10px; font-size:14px; font-family:inherit; }
+  .spbox { padding:10px 14px; border-radius:10px; font-size:14px; margin-top:10px; }
+  .spbox.ok { background:var(--ok-soft); color:var(--ok); font-weight:600; } .spbox.bad { background:var(--bad-soft); color:var(--bad); } .spbox.wait { background:var(--warn-soft); color:var(--warn); }
+  .mail-list { max-height:300px; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+  .mail-grp { padding:7px 12px; background:#f1f4fb; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); position:sticky; top:0; }
+  .mail-row { display:flex; align-items:center; gap:10px; padding:7px 12px; border-top:1px solid var(--border); font-size:13.5px; cursor:pointer; } .mail-row:hover { background:#f7f9fd; }
+  .mail-row input { width:17px; height:17px; accent-color:var(--accent); flex:none; } .mail-row small { color:var(--muted); display:block; }
+  .b-brouillon { background:var(--grey-soft); color:#4c5670; } .b-envoye { background:var(--accent-soft); color:var(--accent-dark); } .b-en_revision { background:var(--warn-soft); color:var(--warn); }
+  .b-approuve { background:var(--ok-soft); color:var(--ok); } .b-refuse, .b-annule { background:var(--bad-soft); color:var(--bad); }
+  textarea { font-family:inherit; font-size:14px; border:1px solid var(--border); border-radius:8px; padding:8px 10px; width:100%; box-sizing:border-box; }
+  .b-recu { background:#e8f1fb; color:#1d5fa8; }
+
+  .b-attente_prix { background:var(--warn-soft); color:#8a5a00; } .b-attente_avenant { background:#efe7ff; color:#5b34b0; } .b-avenant_recu { background:var(--ok-soft); color:var(--ok); }
+  .qdrop { border:1.5px dashed var(--line,#c9d2e3); border-radius:6px; padding:5px 8px; font-size:11.5px; color:var(--muted,#7a879c); text-align:center; cursor:pointer; } .qdrop.over { background:var(--accent-soft); border-color:var(--accent); }
+  .prow { display:grid; grid-template-columns:1fr 1.2fr auto; gap:8px; align-items:center; margin:6px 0; } .prow input { width:100%; }
+</style>
+</head>
+<body>
+<div id="boot"><span class="spin"></span> Vérification de la connexion…</div>
+<div id="auth-gate" class="hidden"><div id="clerk-sign-in" style="width:100%;max-width:460px"></div></div>
+
+<div id="app" class="hidden">
+  <header>
+    <img class="logo" src="/exacto-logo.png" alt="Exacto">
+    <span class="app-name">Finance</span>
+    <nav>
+      <a href="/" id="nav-bc">Bons de commande</a>
+      <a href="/factures" id="nav-fa">Factures</a>
+      <a href="/dashboard" id="nav-dash">Suivi budgétaire</a>
+      <a href="/intervenants" id="nav-iv">Intervenants</a>
+      <a href="/changements" id="nav-ch" class="active">Demandes de changement</a>
+      <a href="/avenants" id="nav-av">Avenants</a>
+      <a href="/da" id="nav-da">Dessins d'atelier</a>
+      <a href="/qrt" id="nav-qrt">QRT</a>
+      <a href="/fin-chantier" id="nav-fc">Fin de chantier</a>
+      <a href="/deficiences" id="nav-def">Déficiences</a>
+      <a href="/echeancier" id="nav-sch">Échéancier</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-right"><a href="/projets" id="nav-prj">Projets</a><a href="/employes" id="nav-emp" style="display:none">Employés</a><a href="/fournisseurs" id="nav-sup">Conformité</a><a href="/configuration" id="nav-cfg" style="display:none">Configuration</a></nav>
+    <div id="clerk-account"><span id="clerk-user-name"></span><div id="clerk-user-button"></div></div>
+  </header>
+  <main>
+    <div class="toolbar">
+      <label class="f" style="width:460px;max-width:100%">Projet
+        <input id="proj" placeholder="Rechercher un projet (numéro ou nom)…" autocomplete="off">
+      </label>
+      <label class="grp-toggle" title="Voir tous les projets l'un sous l'autre (la barre de recherche filtre la liste)"><input type="checkbox" id="grp"> Tous les projets</label>
+      <span class="spacer"></span>
+      <button class="btn hidden" id="btn-summary">Sommaire PDF</button>
+      <button class="btn primary hidden" id="btn-new">+ Nouvelle demande de changement</button>
+    </div>
+    <div id="empty" class="card"><div class="empty">Choisissez un projet pour voir ses demandes de changement.</div></div>
+
+    <!-- Liste -->
+    <section id="list-view" class="hidden">
+      <div class="proj-head"><h1 id="l-title"></h1><span class="muted" id="l-sub"></span></div>
+      <div class="card" style="overflow-x:auto"><div id="l-table"></div></div>
+    </section>
+
+    <!-- Détail -->
+    <section id="detail-view" class="hidden">
+      <div class="proj-head">
+        <a class="lnk-add" id="d-back">← Toutes les demandes</a>
+        <h1 id="d-title"></h1><span id="d-badge"></span><span class="muted" id="d-sub"></span>
+        <span class="spacer"></span>
+        <button class="btn" id="d-preview">Aperçu PDF</button>
+        <button class="btn" id="d-save">Enregistrer</button>
+        <button class="btn primary" id="d-send">Envoyer aux professionnels…</button>
+      </div>
+      <div id="d-warn"></div>
+
+      <div class="card pad">
+        <h3>1. Demande reçue du professionnel</h3>
+        <div class="g4">
+          <label class="f">N° de la demande (professionnel)<input id="f-ddc" placeholder="ex. DC-C04, ME-07"></label>
+          <label class="f">Date de réception<input id="f-date" type="text" placeholder="JJ/MM/AAAA" inputmode="numeric" maxlength="10" autocomplete="off"></label>
+          <label class="f">Émetteur<input id="f-issuer" placeholder="Architecte, Ing. civil…" list="dl-issuer"></label>
+          <label class="f">Type<select id="f-type"><option value="">—</option><option>Extra / DDC</option><option>DDC - Exécutoire</option><option>Instructions supplémentaires</option><option>Changement demandé par le client</option></select></label>
+        </div>
+        <div class="g4" style="margin-top:10px">
+          <label class="f">Affecte le prix ?<select id="f-price"><option value="">—</option><option value="augmentation">Oui — augmentation</option><option value="reduction">Oui — réduction</option><option value="inchange">Non</option><option value="inconnu">À déterminer</option></select></label>
+          <label class="f">Affecte le délai ?<select id="f-delay"><option value="">—</option><option value="augmentation">Oui — prolongation</option><option value="reduction">Oui — réduction</option><option value="inchange">Non</option><option value="inconnu">À déterminer</option></select></label>
+          <label class="f">Jours de délai<input id="f-days" inputmode="numeric" placeholder="0"></label>
+          <label class="f">Titre / objet<input id="f-title" maxlength="200"></label>
+        </div>
+        <label class="f" style="margin-top:10px">Description des travaux<textarea id="f-desc" rows="3"></textarea></label>
+        <div class="g3" style="margin-top:10px">
+          <label class="f">Destinataire (maître de l'ouvrage)<input id="f-dname"></label>
+          <label class="f">Courriel<input id="f-demail" type="email"></label>
+          <label class="f">Téléphone<input id="f-dphone"></label>
+        </div>
+        <datalist id="dl-issuer"><option>Architecte</option><option>Ingénieur civil</option><option>Ingénieur en structure</option><option>Ingénieur en mécanique/électricité</option><option>Maître de l'ouvrage</option></datalist>
+      </div>
+
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><h3 style="margin:0;flex:1">2. Ventilation des coûts</h3><button class="btn sm" id="btn-addline">+ Ligne</button></div>
+        <div style="overflow-x:auto"><table class="list lines" id="lines"></table></div>
+        <div class="tot-wrap">
+          <div class="muted" style="font-size:12.5px;max-width:420px">Le sous-traitant et le code d'activité servent à créer les bons de commande brouillons à l'approbation (coût = quantité × prix unitaire, sans frais administratifs, assurance ni cautionnement).</div>
+          <table class="tot" id="tot"></table>
+        </div>
+        <details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:13px">Texte de la « Note importante » (facultatif — texte par défaut si vide)</summary>
+          <textarea id="f-notes" rows="5" style="width:100%;margin-top:8px"></textarea></details>
+      </div>
+
+      <div class="card pad">
+        <h3>3. Documents</h3>
+        <div class="g3" id="docs"></div>
+      </div>
+
+      <div class="card pad hidden" id="prix-card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><h3 style="margin:0;flex:1">Demande de prix aux sous-traitants</h3><button class="btn sm" id="btn-prix">Demander des prix…</button></div>
+        <div id="prix"></div>
+      </div>
+
+      <div class="card pad">
+        <h3>4. Historique des envois</h3>
+        <div id="versions"></div>
+      </div>
+
+      <div class="card pad" id="approval">
+        <h3>5. Approbation</h3>
+        <div id="appr"></div>
+      </div>
+
+      <div class="card pad"><h3>Journal</h3><div id="events" class="muted" style="font-size:13px"></div></div>
+    </section>
+    <section id="stack" class="hidden"></section>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="toast" class="hidden"></div>
+
+<script>
+const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZXhhY3RvYXBwLmNhJA';
+let clerkInstance = null, appStarted = false;
+
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function money(n) { { const v = Number(n || 0); return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }; }
+function fmtDate(d) { if (!d) return ''; const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(d); }
+const numOf = c => String((c && c.ddc_number) || '').trim() || ((c && c.legacy) ? (c.avc_number || '') : '') || '(sans n°)';
+function isoToFr(d) { const m = String(d || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
+function frToIso(v) {
+  v = String(v || '').trim(); if (!v) return '';
+  let m = v.match(/^(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4})$/); if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? v : '';
+}
+function fmtDT(d) { if (!d) return ''; try { return new Date(d).toLocaleString('fr-CA', { timeZone: 'America/Toronto', dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { return String(d); } }
+function r2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+function pn(v) { if (v === '' || v == null) return null; const n = Number(String(v).replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : null; }
+function n0(v) { const n = pn(v); return n == null ? 0 : n; }
+function fld(v) { return v == null ? '' : v; }
+
+let toastTimer = null;
+window.__navigating = false;
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '#topbar{position:fixed;left:0;top:0;height:3px;width:0;background:#3860f8;z-index:9999;opacity:0;pointer-events:none;transition:width .4s ease,opacity .2s}#topbar.on{opacity:1;width:80%;transition:width 3s cubic-bezier(.1,.7,.2,1)}';
+  document.head.appendChild(st);
+  const bar = document.createElement('div'); bar.id = 'topbar'; document.body.appendChild(bar);
+  let pend = 0, tm = null, lastUser = 0;
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { lastUser = Date.now(); }, true); });
+  const _f = window.fetch;
+  window.fetch = function (u) {
+    const isApi = typeof u === 'string' && u.indexOf('/api/') === 0 && (Date.now() - lastUser < 1500);
+    if (isApi) { pend++; clearTimeout(tm); tm = setTimeout(function () { if (pend > 0) { bar.classList.add('on');  } }, 120); }
+    const p = _f.apply(this, arguments);
+    if (isApi) { const done = function () { if (--pend <= 0) { pend = 0; clearTimeout(tm); bar.style.width = '100%'; setTimeout(function () { bar.classList.remove('on'); bar.style.width = ''; }, 200); } }; p.then(done, done); }
+    return p;
+  };
+})();
+['beforeunload', 'pagehide'].forEach(function (ev) { window.addEventListener(ev, function () { window.__navigating = true; }); });
+window.addEventListener('pageshow', function () { window.__navigating = false; });
+document.addEventListener('click', function (ev) {
+  const a = ev.target.closest && ev.target.closest('a[href]');
+  if (!a || a.target || a.hasAttribute('download') || ev.ctrlKey || ev.metaKey || ev.shiftKey || a.origin !== location.origin) return;
+  const h = a.getAttribute('href') || ''; if (!h || h[0] === '#') return;
+  window.__navigating = true; setTimeout(function () { window.__navigating = false; }, 4000);
+}, true);
+window.addEventListener('unhandledrejection', function (ev) { if (window.__navigating) ev.preventDefault(); });
+window.__ld = null;
+function loadingModal() { const w = document.createElement('div'); w.className = 'overlay'; w.innerHTML = '<div class="modal" style="max-width:260px;padding:26px;text-align:center"><span class="spin"></span> Chargement…</div>'; document.getElementById('modal-root').appendChild(w); window.__ld = w; return w; }
+function withLoader(fn) { return async function () { const w = loadingModal(); try { return await fn.apply(this, arguments); } finally { if (w.parentNode) w.remove(); if (window.__ld === w) window.__ld = null; } }; }
+function toast(msg, isErr) {
+  if (isErr && window.__navigating) return;
+  const t = $('toast'); t.textContent = msg; t.className = isErr ? 'error' : '';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), isErr ? 8000 : 3500);
+}
+
+
+/* ---------- Clerk ---------- */
+function loadExternalScript(attrs) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    Object.keys(attrs).forEach(k => s.setAttribute(k, attrs[k]));
+    s.crossOrigin = 'anonymous'; s.onload = resolve;
+    s.onerror = () => reject(new Error('Échec de chargement: ' + attrs.src));
+    document.head.appendChild(s);
+  });
+}
+async function initClerkAuth() {
+  const clerkDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+  try {
+    await Promise.all([
+      loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js` }),
+      loadExternalScript({ src: `https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, 'data-clerk-publishable-key': CLERK_PUBLISHABLE_KEY }),
+      loadExternalScript({ src: '/clerk-fr-fr.js' })
+    ]);
+    await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, localization: window.CLERK_LOCALIZATION_FR });
+  } catch (err) {
+    $('boot').innerHTML = '⚠ Impossible de charger Clerk (' + esc(err.message) + '). Vérifiez votre connexion et réessayez.';
+    return;
+  }
+  clerkInstance = window.Clerk;
+  clerkInstance.addListener(({ user }) => {
+    if (user) {
+      $('boot').classList.add('hidden'); $('auth-gate').classList.add('hidden'); $('app').classList.remove('hidden');
+      const btnEl = $('clerk-user-button');
+      if (btnEl && !btnEl.dataset.mounted) { clerkInstance.mountUserButton(btnEl, { appearance: { elements: { userButtonAvatarBox: { width: '26px', height: '26px' } } } }); btnEl.dataset.mounted = '1'; }
+      $('clerk-user-name').textContent = user.fullName || user.firstName || (user.primaryEmailAddress && user.primaryEmailAddress.emailAddress) || '';
+      if (!appStarted) { appStarted = true; start(); }
+    } else {
+      appStarted = false; $('boot').classList.add('hidden'); $('app').classList.add('hidden'); $('auth-gate').classList.remove('hidden');
+      const el = $('clerk-sign-in');
+      if (el && !el.dataset.mounted) { clerkInstance.mountSignIn(el, { appearance: { elements: { rootBox: { width: '100%' }, card: { width: '100%' } } } }); el.dataset.mounted = '1'; }
+    }
+  });
+}
+async function getClerkToken() {
+  for (let i = 0; i < 5; i++) {
+    if (clerkInstance && clerkInstance.session) return await clerkInstance.session.getToken();
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return null;
+}
+async function api(action, params) {
+  let res;
+  try {
+    const token = await getClerkToken();
+    res = await fetch('/api/changes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (token || '') }, body: JSON.stringify(Object.assign({ action }, params || {})) });
+  } catch (e) { if (window.__navigating) return new Promise(function () {}); throw new Error('Impossible de joindre le serveur (' + e.message + ')'); }
+  let json = {};
+  try { json = await res.json(); } catch (e) { throw new Error('Réponse invalide du serveur (HTTP ' + res.status + ')'); }
+  if (!res.ok) { const er = new Error(json.error || ('Erreur serveur (HTTP ' + res.status + ')')); er.code = json.code; throw er; }
+  return json;
+}
+
+
+/* ---------- Modales / suggestions ---------- */
+function openModal(html, cls) {
+  if (window.__ld) { if (window.__ld.parentNode) window.__ld.remove(); window.__ld = null; }
+  const wrap = document.createElement('div'); wrap.className = 'overlay';
+  wrap.innerHTML = '<div class="modal ' + (cls || '') + '">' + html + '</div>';
+  $('modal-root').appendChild(wrap);
+  wrap.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(wrap)));
+  return wrap;
+}
+function closeModal(wrap) { if (wrap && wrap._cleanup) wrap._cleanup(); if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap); }
+
+function attachSuggest(input, getItems, onPick) {
+  let box = null, items = [], idx = -1;
+  const close = () => { if (box) { box.remove(); box = null; } };
+  const render = () => {
+    close(); items = getItems(input.value.trim());
+    box = document.createElement('div'); box.className = 'suggest';
+    box.innerHTML = items.length ? items.map((it, i) => '<div data-i="' + i + '">' + esc(it.label) + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</div>').join('') : '<div class="none">Aucun résultat</div>';
+    input.parentNode.appendChild(box); idx = -1;
+    if (input.dataset.fixed) { // liste ancrée sous le champ même dans un tableau défilant
+      const r = input.getBoundingClientRect();
+      box.style.position = 'fixed'; box.style.left = r.left + 'px'; box.style.top = (r.bottom + 2) + 'px'; box.style.right = 'auto'; box.style.width = Math.max(r.width, 280) + 'px'; box.style.zIndex = 300;
+      const room = window.innerHeight - r.bottom - 12; box.style.maxHeight = Math.max(120, Math.min(260, room)) + 'px';
+    }
+    box.querySelectorAll('[data-i]').forEach(d => d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(+d.dataset.i); }));
+  };
+  const pick = i => { const it = items[i]; if (!it) return; close(); onPick(it); };
+  input.addEventListener('input', render); input.addEventListener('focus', render);
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  if (input.dataset.fixed) { window.addEventListener('scroll', close, true); window.addEventListener('resize', close); }
+  input.addEventListener('keydown', ev => {
+    if (!box) return;
+    const els = box.querySelectorAll('[data-i]');
+    if (ev.key === 'ArrowDown') { idx = Math.min(idx + 1, els.length - 1); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { idx = Math.max(idx - 1, 0); ev.preventDefault(); }
+    else if (ev.key === 'Enter' && idx >= 0) { ev.preventDefault(); pick(idx); return; }
+    else if (ev.key === 'Escape') { close(); return; }
+    els.forEach((e, i) => e.classList.toggle('sel', i === idx));
+    if (els[idx]) els[idx].scrollIntoView({ block: 'nearest' });
+  });
+}
+
+
+
+
+/* ---------- Regroupement « Par projets » (projets empilés, chargés un à un) ---------- */
+let STK = 0;
+const STK_SKIP = /termin|annul|ferm|lib[eé]r/i;
+function GRPK() { return (location.pathname || '').replace(/\.html$/, '').replace(/[^a-z0-9]/gi, '') || 'x'; }
+function grpOn(id) { try { return localStorage.getItem('finGrp:' + GRPK() + (id || '')) === '1'; } catch (e) { return false; } }
+function grpSave(on, id) { try { localStorage.setItem('finGrp:' + GRPK() + (id || ''), on ? '1' : '0'); } catch (e) {} }
+function stackProjects() { return S.projects.filter(p => !STK_SKIP.test(p.status || '')).slice().sort((a, b) => String(a.number).localeCompare(String(b.number), 'fr', { numeric: true })); }
+async function runStack(el, loader, renderer, openFn) {
+  const tok = ++STK, projs = stackProjects();
+  if (!projs.length) { el.innerHTML = '<div class="card"><div class="empty">Aucun projet en cours accessible.</div></div>'; return; }
+  el.innerHTML = projs.map(p =>
+    '<div class="proj-sec" id="stk-' + p.id + '" data-p="' + p.id + '"><h2>' + esc(p.number + ' — ' + p.name) + '<small>' + esc((p.cp || []).join(', ')) + '</small><span class="spacer"></span><button class="btn sm" data-open="' + p.id + '">Ouvrir</button></h2><div class="card" style="overflow-x:auto"><div class="sec-body"><div class="empty"><span class="spin"></span></div></div></div></div>').join('');
+  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openFn(b.dataset.open));
+  stackCollapseInit(el, async sec => {
+    const p = projs.find(x => x.id === sec.dataset.p), body = sec.querySelector('.sec-body');
+    try { const d = await loader(p); body.innerHTML = ''; renderer(body, p, d); }
+    catch (e) { body.innerHTML = '<div class="err">' + esc(e.message || e) + '</div>'; }
+  });
+}
+function stopStack() { STK++; }
+
+/* ---------- Vue « tous les projets » par défaut (DA, DDC, QRT, Fin de chantier) + recherche ---------- */
+function grpOnM() { try { return localStorage.getItem('finGrpM:' + GRPK) !== '0'; } catch (e) { return true; } }
+function grpSaveM(on) { try { localStorage.setItem('finGrpM:' + GRPK, on ? '1' : '0'); } catch (e) {} }
+/** Projets repliés par défaut : un clic sur l'en-tête ouvre/ferme le projet (onOpen appelé à la première ouverture). */
+function stackCollapseInit(el, onOpen) {
+  el.querySelectorAll('.proj-sec').forEach(sec => {
+    if (sec.dataset.cinit) return; sec.dataset.cinit = '1'; sec.classList.add('collapsed');
+    const h = sec.querySelector('h2'); if (!h) return;
+    h.addEventListener('click', ev => {
+      if (ev.target.closest('button,a,input')) return;
+      const open = sec.classList.contains('collapsed'); sec.classList.toggle('collapsed', !open);
+      if (open && onOpen && !sec.dataset.loaded) { sec.dataset.loaded = '1'; onOpen(sec); }
+    });
+  });
+}
+const normQ = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+/** Masque les projets qui ne correspondent pas au texte de la barre de recherche (numéro, nom ou chargé de projet). */
+function stackFilterApply(el, term) {
+  stackCollapseInit(el);
+  const t = normQ(term).replace(/\s*[—-]\s*/g, ' ').trim(); let shown = 0;
+  el.querySelectorAll('.proj-sec').forEach(sec => {
+    const h = sec.querySelector('h2'), txt = normQ(h ? h.textContent : '').replace(/\s*[—-]\s*/g, ' ');
+    const ok = !t || txt.includes(t) || t.split(/\s+/).every(w => txt.includes(w));
+    sec.classList.toggle('hidden', !ok); if (ok) shown++;
+    if (ok && t) sec.classList.remove('collapsed');
+  });
+  let none = el.querySelector('.stk-none');
+  if (!shown && t && el.querySelector('.proj-sec')) { if (!none) { none = document.createElement('div'); none.className = 'card stk-none'; none.innerHTML = '<div class="empty">Aucun projet ne correspond à la recherche.</div>'; el.appendChild(none); } }
+  else if (none) none.remove();
+}
+/** Barre de progression (segments : [{ n, color, label }]) ; total = nombre d'éléments, done = éléments complétés. */
+function progBarHtml(segs, total) {
+  const n = total || 1;
+  return '<div class="pbar">' + segs.map(g => '<span style="width:' + (g.n / n * 100) + '%;background:' + g.color + '"></span>').join('') + '</div>';
+}
+function progLegendHtml(segs) { return '<div class="plegend">' + segs.map(g => '<span><i style="background:' + g.color + (g.border ? ';border:1px solid var(--border)' : '') + '"></i>' + g.label + ' ' + g.n + '</span>').join('') + '</div>'; }
+function progCardHtml(segs, total, done, txt) {
+  return '<div class="card pad"><div style="display:flex;align-items:baseline;gap:10px"><b style="font-size:20px">' + Math.round(done / (total || 1) * 100) + ' %</b><span class="muted" style="font-size:13px">' + esc(txt) + '</span></div>' + progBarHtml(segs, total) + progLegendHtml(segs) + '</div>';
+}
+function miniProgHtml(segs, total, txt) { return '<span class="mini-prog" title="' + esc(txt) + '">' + progBarHtml(segs, total) + '<em>' + esc(txt) + '</em></span>'; }
+
+/** Affichage instantané : montre la dernière version connue (cache du navigateur), puis rafraîchit en arrière-plan. */
+async function stackSWR(key, action, render) {
+  const el = $('stack'); let uid = ''; try { uid = (window.Clerk && Clerk.user && Clerk.user.id) || ''; } catch (e) {}
+  const k = 'finStk:' + key + ':' + uid; let had = false;
+  try { const c = JSON.parse(localStorage.getItem(k) || 'null'); if (c && c.r) { render(c.r); had = true; } } catch (e) {}
+  if (!had) el.innerHTML = '<div class="stack-prog"><span class="spin"></span> Chargement…</div>';
+  let r; try { r = await api(action); } catch (e) { if (!had) el.innerHTML = '<div class="card"><div class="err">' + esc(e.message) + '</div></div>'; return; }
+  render(r);
+  try { const s = JSON.stringify({ r }); if (s.length < 1500000) localStorage.setItem(k, s); } catch (e) {}
+}
+
+
+const S = { stack: false, me: null, projects: [], pid: null, proj: null, list: [], cur: null, lk: null, locked: false };
+const STATUS = { brouillon: 'Brouillon', attente_prix: 'En attente de prix', envoye: 'Envoyé', en_revision: 'En révision', approuve: 'Approuvé', attente_avenant: "En attente de l'avenant", avenant_recu: 'Avenant reçu', refuse: 'Refusé', annule: 'Annulé' };
+const APPROVED = ['approuve', 'attente_avenant', 'avenant_recu'];
+const isAppr = st => APPROVED.includes(st);
+const PRICE_LBL = { augmentation: 'Oui ↑', reduction: 'Oui ↓', inchange: 'Non', inconnu: 'À déterminer' };
+const KIND_LBL = { ddc: 'Demande du professionnel', comment: 'Commentaires reçus', signed: 'Document signé', other: 'Autre' };
+function badge(st, x) { if (x && x.legacy && ['approuve','avenant_recu','refuse','annule'].includes(st)) return '<span class="badge b-recu" title="Importé de Monday — terminé">Traité</span>'; return '<span class="badge b-' + esc(st) + '">' + esc(STATUS[st] || st) + '</span>'; }
+
+async function start() {
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem('finProjList') || 'null'); } catch (e) {}
+  S.projects = Array.isArray(cached) ? cached : [];
+  attachSuggest($('proj'), term => {
+    const t = term.toLowerCase();
+    return S.projects.filter(x => !t || (x.number + ' ' + x.name).toLowerCase().includes(t)).slice(0, 40)
+      .map(x => ({ label: x.number + ' — ' + x.name, sub: (x.cp && x.cp.length ? 'CP : ' + x.cp.join(', ') : '') + (x.status ? ' · ' + x.status : ''), x }));
+  }, it => { $('proj').value = it.x.number + ' — ' + it.x.name; if (S.stack) applyStackFilter(); else loadList(it.x.id); });
+  $('proj').addEventListener('input', () => { if (S.stack) applyStackFilter(); });
+  let pid = new URLSearchParams(location.search).get('p');
+  try { if (!pid) pid = localStorage.getItem('finDashProject'); } catch (e) {}
+  let opened = false;
+  $('grp').checked = grpOnM();
+  const openIfKnown = () => { if (opened || $('grp').checked) return; const p = S.projects.find(x => x.id === pid); if (p) { opened = true; $('proj').value = p.number + ' — ' + p.name; loadList(p.id); } };
+  if (S.projects.length) { openIfKnown(); } else $('proj').placeholder = 'Chargement des projets…';
+  if ($('grp').checked) { setGrp(true); setTimeout(ensureLookups, 2500); }
+  try {
+    const r = await api('projects');
+    S.me = r.me; S.projects = r.projects;
+    try { localStorage.setItem('finProjList', JSON.stringify(r.projects)); } catch (e) {}
+  } catch (e) { if (!S.projects.length) $('empty').innerHTML = '<div class="empty"><div class="err" style="display:inline-block">' + esc(e.message) + '</div></div>'; return; }
+  $('proj').placeholder = 'Rechercher un projet (numéro ou nom)…';
+  openIfKnown();
+  if (!S.projects.length) $('empty').innerHTML = '<div class="empty">Aucun projet accessible. Seuls la comptabilité, les administrateurs et les chargés de projet y ont accès.</div>';
+}
+
+/* ---------- Liste ---------- */
+async function loadList(id, keepDetail) {
+  S.pid = id;
+  try { localStorage.setItem('finDashProject', id); history.replaceState(null, '', '?p=' + encodeURIComponent(id)); } catch (e) {}
+  $('empty').classList.add('hidden'); $('list-view').classList.remove('hidden');
+  if (!keepDetail) $('detail-view').classList.add('hidden');
+  $('btn-new').classList.remove('hidden'); $('btn-summary').classList.remove('hidden');
+  $('l-table').innerHTML = '<div class="empty"><span class="spin"></span> Chargement…</div>';
+  try { const r = await api('list', { projectItemId: id }); S.proj = r.project; S.list = r.changes; }
+  catch (e) { $('l-table').innerHTML = '<div class="err">' + esc(e.message) + '</div>'; return; }
+  $('l-title').textContent = S.proj.number + ' — ' + S.proj.name;
+  $('l-sub').textContent = 'Assurance supplémentaire ' + (S.proj.insurancePct || 0) + ' % · Cautionnement supplémentaire ' + (S.proj.bondPct || 0) + ' %';
+  renderList();
+}
+function changeTableHtml(list) {
+  return '<table class="list"><thead><tr><th>N° de la demande</th><th>Titre</th><th>Reçue le</th><th>Émetteur</th><th>Prix</th><th>Délai</th><th style="text-align:right">Total (taxes incl.)</th><th>Statut</th><th>Bons</th></tr></thead><tbody>' +
+    list.map(c => '<tr class="row" data-id="' + c.id + '"><td><b>' + esc(numOf(c)) + '</b>' + (c.rev ? ' <span class="muted">Rév.' + c.rev + '</span>' : '') + '</td><td>' + esc(c.title || '') + '</td><td>' + fmtDate(c.received_date) + '</td><td>' + esc(c.issuer || '') + '</td><td>' + esc(PRICE_LBL[c.affects_price] || '') + '</td><td>' + esc(PRICE_LBL[c.affects_delay] || '') + '</td><td style="text-align:right">' + money(c.total) + '</td><td>' + badge(c.status, c) + '</td><td>' + (c.nPos ? c.nPos + ' brouillon(s)' : '') + '</td></tr>').join('') + '</tbody></table>';
+}
+function renderList() {
+  if (!S.list.length) { $('l-table').innerHTML = '<div class="empty">Aucune demande de changement pour ce projet. Cliquez sur « + Nouvelle demande de changement ».</div>'; return; }
+  $('l-table').innerHTML = changeTableHtml(S.list);
+  $('l-table').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => openChange(tr.dataset.id));
+}
+$('btn-new').onclick = async () => {
+  const b = $('btn-new'); b.disabled = true;
+  try { const r = await api('create', { projectItemId: S.pid }); await loadList(S.pid, true); await openChange(r.id); }
+  catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+$('d-back').onclick = async () => { if (S.stack) { $('detail-view').classList.add('hidden'); $('stack').classList.remove('hidden'); await loadStack(); return; } $('detail-view').classList.add('hidden'); $('list-view').classList.remove('hidden'); await loadList(S.pid); };
+
+/* ---------- Détail ---------- */
+async function ensureLookups() {
+  if (S.lk) return;
+  try { S.lk = await api('lookups'); } catch (e) { S.lk = { activities: [], suppliers: [] }; toast('Listes Monday illisibles : ' + e.message, true); }
+}
+async function openChange(id) {
+  $('list-view').classList.add('hidden'); $('stack').classList.add('hidden'); $('detail-view').classList.remove('hidden');
+  $('d-title').textContent = 'Chargement…'; window.scrollTo(0, 0);
+  try { S.cur = (await Promise.all([api('get', { id }), ensureLookups()]))[0]; }
+  catch (e) { toast(e.message, true); $('detail-view').classList.add('hidden'); $('list-view').classList.remove('hidden'); return; }
+  renderDetail();
+}
+async function setGrp(on) {
+  S.stack = on; $('grp').checked = on; grpSaveM(on);
+  $('stack').classList.toggle('hidden', !on);
+  if (on) { ['empty', 'list-view', 'detail-view', 'btn-new', 'btn-summary'].forEach(i => $(i).classList.add('hidden')); await loadStack(); }
+  else {
+    $('stack').innerHTML = '';
+    if (S.pid) { $('list-view').classList.remove('hidden'); $('btn-new').classList.remove('hidden'); $('btn-summary').classList.remove('hidden'); loadList(S.pid); } else $('empty').classList.remove('hidden');
+  }
+}
+async function loadStack() { await stackSWR('ch', 'listAll', renderStack); }
+function renderStack(r) {
+  const by = {}; r.changes.forEach(c => (by[c.project_item_id] = by[c.project_item_id] || []).push(c));
+  const projs = r.projects.filter(p => by[p.id]).sort((a, b) => String(a.number).localeCompare(String(b.number), 'fr', { numeric: true }));
+  if (!projs.length) { $('stack').innerHTML = '<div class="card"><div class="empty">Aucune demande de changement dans vos projets.</div></div>'; return; }
+  $('stack').innerHTML = projs.map(p => '<div class="proj-sec" data-p="' + p.id + '"><h2>' + esc(p.number + ' — ' + p.name) + '<small>' + by[p.id].length + ' demande(s)</small><span class="spacer"></span><button class="btn sm" data-open="' + p.id + '">Ouvrir le projet</button></h2><div class="card" style="overflow-x:auto">' + changeTableHtml(by[p.id]) + '</div></div>').join('');
+  $('stack').querySelectorAll('[data-open]').forEach(b => b.onclick = async () => { const p = projs.find(x => x.id === b.dataset.open); $('proj').value = p.number + ' — ' + p.name; S.pid = p.id; await setGrp(false); });
+  $('stack').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { const sec = tr.closest('.proj-sec'); const p = projs.find(x => x.id === sec.dataset.p); S.pid = p.id; S.proj = { id: p.id, number: p.number, name: p.name }; openChange(tr.dataset.id); });
+  applyStackFilter();
+}
+const applyStackFilter = () => stackFilterApply($('stack'), $('proj').value);
+$('grp').onchange = () => setGrp($('grp').checked);
+async function reloadCur() { S.cur = await api('get', { id: S.cur.change.id }); renderDetail(); }
+
+function renderDetail() {
+  const c = S.cur.change;
+  S.locked = isAppr(c.status) || ['refuse', 'annule'].includes(c.status);
+  $('d-title').textContent = 'Avis de changement ' + (String(c.ddc_number || '').trim() || (c.legacy ? c.avc_number : '') || 'sans numéro') + (c.rev ? ' Rév.' + c.rev : '');
+  $('d-badge').innerHTML = badge(c.status, c);
+  $('d-sub').textContent = c.project_number + ' — ' + c.project_name;
+  $('f-ddc').oninput = () => { $('d-title').textContent = 'Avis de changement ' + ($('f-ddc').value.trim() || (c.legacy ? c.avc_number : '') || 'sans numéro') + (c.rev ? ' Rév.' + c.rev : ''); };
+  $('f-ddc').value = fld(c.ddc_number); $('f-date').value = isoToFr(c.received_date); $('f-issuer').value = fld(c.issuer);
+  $('f-type').value = fld(c.change_type); $('f-price').value = fld(c.affects_price); $('f-delay').value = fld(c.affects_delay); $('f-days').value = fld(c.extra_days);
+  $('f-title').value = fld(c.title); $('f-desc').value = fld(c.description);
+  $('f-dname').value = fld(c.dest_name); $('f-demail').value = fld(c.dest_email); $('f-dphone').value = fld(c.dest_phone); $('f-notes').value = fld(c.notes_text);
+  S.lines = (c.lines || []).map(l => Object.assign({}, l));
+  S.ins = Number(c.insurance_pct) || 0; S.bond = Number(c.bond_pct) || 0;
+  ['f-ddc', 'f-date', 'f-issuer', 'f-type', 'f-price', 'f-delay', 'f-days', 'f-title', 'f-desc', 'f-dname', 'f-demail', 'f-dphone', 'f-notes'].forEach(i => $(i).disabled = S.locked);
+  $('btn-addline').classList.toggle('hidden', S.locked);
+  $('d-save').classList.toggle('hidden', S.locked); $('d-send').classList.toggle('hidden', S.locked);
+  $('d-send').textContent = c.sent_at ? 'Renvoyer (révision ' + ((c.rev || 0) + 1) + ')…' : 'Envoyer aux professionnels…';
+  $('d-warn').innerHTML = (S.cur.projectDefaults && (S.cur.projectDefaults.insurancePct || S.cur.projectDefaults.bondPct) ? '' : '<div class="warn">Les pourcentages d\'assurance et de cautionnement supplémentaires sont à 0 % dans Monday (fiche projet). Vous pouvez les ajuster ci-dessous.</div>');
+  renderLines(); renderDocs(); renderPrix(); renderVersions(); renderApproval(); renderEvents();
+}
+
+function calc() {
+  let sumTotal = 0;
+  const rows = S.lines.map(l => { const base = r2(n0(l.qty) * n0(l.price)); const fee = r2(base * n0(l.feePct) / 100); const tot = r2(base + fee); sumTotal += tot; return { base, fee, tot }; });
+  sumTotal = r2(sumTotal);
+  const ins = r2(sumTotal * S.ins / 100), bond = r2(sumTotal * S.bond / 100), sub = r2(sumTotal + ins + bond);
+  const tps = r2(sub * 0.05), tvq = r2(sub * 0.09975);
+  return { rows, sumTotal, ins, bond, sub, tps, tvq, total: r2(sub + tps + tvq) };
+}
+function renderLines() {
+  const ro = S.locked ? ' disabled' : '';
+  $('lines').innerHTML = '<thead><tr><th style="min-width:230px">Description</th><th>Qté</th><th>Prix unit.</th><th>Frais adm. %</th><th style="text-align:right">Sous-total</th><th style="min-width:150px">Code d\'activité</th><th style="min-width:170px">Sous-traitant (bon de commande)</th><th style="min-width:120px">Soumission jointe</th><th></th></tr></thead><tbody>' +
+    S.lines.map((l, i) => '<tr data-i="' + i + '"><td><input data-k="name" value="' + esc(l.name) + '"' + ro + '></td><td><input class="num" data-k="qty" value="' + esc(fld(l.qty)) + '"' + ro + '></td><td><input class="num" data-k="price" value="' + esc(fld(l.price)) + '"' + ro + '></td><td><input class="num" data-k="feePct" value="' + esc(fld(l.feePct)) + '"' + ro + '></td><td class="amt" data-sub></td>' +
+      '<td><input data-k="act" placeholder="Code d\'activité…" value="' + esc(l.activityCode ? l.activityCode + (l.activityLabel ? ' — ' + l.activityLabel : '') : '') + '"' + ro + '></td><td><input data-k="sup" placeholder="Aucun (travaux EPD)" value="' + esc(l.supplierName || '') + '"' + ro + '></td><td class="qcell">' + quoteCell(l) + '</td><td>' + (S.locked ? '' : '<button class="btn-x" data-del title="Retirer">×</button>') + '</td></tr>').join('') + '</tbody>';
+  $('lines').querySelectorAll('tr[data-i]').forEach(tr => {
+    const i = +tr.dataset.i, l = S.lines[i];
+    tr.querySelectorAll('input[data-k]').forEach(inp => {
+      const k = inp.dataset.k;
+      if (k === 'name') inp.oninput = () => { l.name = inp.value; };
+      else if (k === 'qty' || k === 'price' || k === 'feePct') inp.oninput = () => { l[k] = inp.value; renderTotals(); };
+    });
+    const qa = tr.querySelector('[data-qadd]'); if (qa) { const inp = qa.querySelector('input'); qa.onclick = ev => { if (ev.target === qa) inp.click(); }; inp.onchange = () => { if (inp.files[0]) uploadQuote(i, inp.files[0], qa); };
+      qa.ondragover = ev => { ev.preventDefault(); qa.classList.add('over'); }; qa.ondragleave = () => qa.classList.remove('over'); qa.ondrop = ev => { ev.preventDefault(); qa.classList.remove('over'); if (ev.dataTransfer.files[0]) uploadQuote(i, ev.dataTransfer.files[0], qa); }; }
+    const qd = tr.querySelector('[data-qdl]'); if (qd) qd.onclick = () => downloadFile('file', qd.dataset.qdl, qd.dataset.name);
+    const qr = tr.querySelector('[data-qrm]'); if (qr) qr.onclick = async () => { l.quoteFileId = ''; await save(true); renderLines(); };
+    const del = tr.querySelector('[data-del]'); if (del) del.onclick = () => { S.lines.splice(i, 1); renderLines(); };
+    if (!S.locked) {
+      const act = tr.querySelector('[data-k=act]'), sup = tr.querySelector('[data-k=sup]');
+      act.dataset.fixed = '1'; sup.dataset.fixed = '1';
+      attachSuggest(act, term => { const t = term.toLowerCase(); return S.lk.activities.filter(a => !t || (a.code + ' ' + a.name).toLowerCase().includes(t)).slice(0, 30).map(a => ({ label: a.code + ' — ' + a.name, sub: a.gl ? 'G/L ' + a.gl : 'Aucun compte G/L', a })); },
+        it => { l.activityCode = it.a.code; l.budgetItemId = it.a.id; l.activityLabel = it.a.name; act.value = it.a.code + ' — ' + it.a.name; });
+      act.addEventListener('change', () => { if (!act.value.trim()) { l.activityCode = ''; l.budgetItemId = ''; l.activityLabel = ''; } });
+      attachSuggest(sup, term => { const t = term.toLowerCase(); return S.lk.suppliers.filter(s => !t || s.name.toLowerCase().includes(t)).slice(0, 30).map(s => ({ label: s.name, sub: s.email, s })); },
+        it => { l.supplierItemId = it.s.id; l.supplierName = it.s.name; l.supplierEmail = it.s.email; sup.value = it.s.name; });
+      sup.addEventListener('change', () => { if (!sup.value.trim()) { l.supplierItemId = ''; l.supplierName = ''; l.supplierEmail = ''; } });
+    }
+  });
+  renderTotals();
+}
+function quoteCell(l) {
+  const f = l.quoteFileId && (S.cur.files || []).find(x => x.id === l.quoteFileId);
+  if (f) return '<a data-qdl="' + f.id + '" data-name="' + esc(f.filename) + '" title="' + esc(f.filename) + '" style="cursor:pointer">' + esc(f.filename.length > 22 ? f.filename.slice(0, 20) + '…' : f.filename) + '</a>' + (S.locked ? '' : ' <button class="btn-x" data-qrm title="Retirer la soumission">×</button>');
+  return S.locked ? '' : '<div class="qdrop" data-qadd>Glisser la soumission<input type="file" hidden></div>';
+}
+/** Téléverse la soumission d'un sous-traitant (kind « quote ») et la rattache à la ligne : elle sera ajoutée à la suite de l'avis envoyé aux professionnels. */
+async function uploadQuote(i, file, zone) {
+  const RAW = 1572864;
+  if (file.size > 20 * 1024 * 1024) { toast('Fichier trop volumineux (max 20 Mo).', true); return; }
+  if (!/\.pdf$/i.test(file.name)) toast('Astuce : un PDF est intégré au document ; les autres formats partent en pièce jointe.');
+  const uploadId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)), n = Math.max(1, Math.ceil(file.size / RAW));
+  try {
+    for (let k = 0; k < n; k++) {
+      zone.textContent = 'Téléversement… ' + Math.round(k / n * 100) + ' %';
+      const buf = new Uint8Array(await file.slice(k * RAW, (k + 1) * RAW).arrayBuffer());
+      let bin = ''; for (let j = 0; j < buf.length; j += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(j, j + 0x8000));
+      await api('fileChunk', { id: S.cur.change.id, uploadId, idx: k, data: btoa(bin) });
+    }
+    const r = await api('fileFinish', { id: S.cur.change.id, uploadId, count: n, kind: 'quote', filename: file.name });
+    S.lines[i].quoteFileId = r.id;
+    await save(true);
+    await reloadCur();
+  } catch (e) { toast(e.message, true); renderLines(); }
+}
+function renderTotals() {
+  const t = calc();
+  $('lines').querySelectorAll('tr[data-i]').forEach(tr => { tr.querySelector('[data-sub]').textContent = money(t.rows[+tr.dataset.i].tot); });
+  const ro = S.locked ? ' disabled' : '';
+  $('tot').innerHTML = '<tr><td>Total des lignes</td><td>' + money(t.sumTotal) + '</td></tr>' +
+    '<tr><td>Assurance supplémentaire <input id="t-ins" value="' + S.ins + '"' + ro + '> %</td><td>' + money(t.ins) + '</td></tr>' +
+    '<tr><td>Cautionnement supplémentaire <input id="t-bond" value="' + S.bond + '"' + ro + '> %</td><td>' + money(t.bond) + '</td></tr>' +
+    '<tr><td><b>Sous-total</b></td><td><b>' + money(t.sub) + '</b></td></tr><tr><td>TPS (5 %)</td><td>' + money(t.tps) + '</td></tr><tr><td>TVQ (9,975 %)</td><td>' + money(t.tvq) + '</td></tr><tr class="big"><td>Total</td><td>' + money(t.total) + '</td></tr>';
+  const hook = (id, k) => { const el = $(id); el.oninput = () => { S[k] = n0(el.value); const x = calc(); fillTot(x); }; };
+  hook('t-ins', 'ins'); hook('t-bond', 'bond');
+}
+function fillTot(t) { // met à jour les montants sans recréer les champs (garde le focus)
+  const rows = $('tot').querySelectorAll('tr'); const set = (i, v) => { rows[i].lastElementChild.innerHTML = v; };
+  set(0, money(t.sumTotal)); set(1, money(t.ins)); set(2, money(t.bond)); set(3, '<b>' + money(t.sub) + '</b>'); set(4, money(t.tps)); set(5, money(t.tvq)); set(6, money(t.total));
+}
+$('btn-addline').onclick = () => { S.lines.push({ name: '', qty: 1, price: '', feePct: 10, activityCode: '', budgetItemId: '', supplierItemId: '', supplierName: '' }); renderLines(); };
+
+function collect() {
+  const days = $('f-days').value.trim();
+  return {
+    ddcNumber: $('f-ddc').value, receivedDate: frToIso($('f-date').value), issuer: $('f-issuer').value, changeType: $('f-type').value,
+    affectsPrice: $('f-price').value, affectsDelay: $('f-delay').value, extraDays: days, title: $('f-title').value, description: $('f-desc').value,
+    destName: $('f-dname').value, destEmail: $('f-demail').value, destPhone: $('f-dphone').value, notesText: $('f-notes').value,
+    insurancePct: S.ins, bondPct: S.bond,
+    lines: S.lines.map(l => ({ name: l.name, qty: n0(l.qty), price: n0(l.price), feePct: n0(l.feePct), activityCode: l.activityCode || '', budgetItemId: l.budgetItemId || '', activityLabel: l.activityLabel || '',
+      supplierItemId: l.supplierItemId || '', supplierName: l.supplierName || '', supplierEmail: l.supplierEmail || '', quoteFileId: l.quoteFileId || '' }))
+  };
+}
+async function save(silent) {
+  if (S.locked) return true;
+  try { await api('save', { id: S.cur.change.id, fields: collect() }); if (!silent) toast('Enregistré.'); return true; }
+  catch (e) { toast(e.message, true); return false; }
+}
+$('d-save').onclick = async () => { const b = $('d-save'); b.disabled = true; await save(); b.disabled = false; };
+
+/* ---------- Aperçu / téléchargements ---------- */
+function b64ToBlob(b64, type) { const bin = atob(b64); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type: type || 'application/octet-stream' }); }
+$('d-preview').onclick = async () => {
+  const b = $('d-preview'); b.disabled = true;
+  try {
+    if (!(await save(true))) return;
+    const r = await api('preview', { id: S.cur.change.id });
+    const url = URL.createObjectURL(b64ToBlob(r.pdfBase64, 'application/pdf'));
+    const m = openModal('<div class="modal-head"><h2>Aperçu — ' + esc(r.filename) + '</h2><a class="btn" href="' + url + '" download="' + esc(r.filename) + '">Télécharger</a><button class="x" data-close>×</button></div><div class="modal-body" style="padding:0"><iframe src="' + url + '" style="width:100%;height:75vh;border:0"></iframe></div>', 'xl');
+    m._cleanup = () => URL.revokeObjectURL(url);
+  } catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+async function downloadFile(src, fileId, name) {
+  try {
+    let idx = 0, chunks = 1, parts = [], fn = name;
+    while (idx < chunks) {
+      const r = await api('fileGetChunk', { id: S.cur.change.id, fileId, src, idx });
+      chunks = r.chunks; parts.push(r.data); fn = r.filename || fn; idx++;
+    }
+    const blob = b64ToBlob(parts.join(''), /\.pdf$/i.test(fn) ? 'application/pdf' : 'application/octet-stream');
+    const url = URL.createObjectURL(blob);
+    if (/\.pdf$/i.test(fn)) { window.open(url, '_blank'); }
+    else { const a = document.createElement('a'); a.href = url; a.download = fn; document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- Documents ---------- */
+const fmtSize = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' Mo' : Math.max(1, Math.round(n / 1024)) + ' Ko';
+function renderDocs() {
+  const files = S.cur.files || [];
+  const kinds = [['ddc', "Demande du professionnel", 'Joignez la demande de changement reçue (PDF).'], ['signed', 'Document signé', 'Avis approuvé et signé par les professionnels.']];
+  $('docs').innerHTML = kinds.map(([k, label, hint]) => '<div class="docbox"><h4>' + label + '</h4><div class="muted" style="font-size:12px">' + hint + '</div>' +
+    files.filter(f => f.kind === k).map(f => '<div class="fileline"><a data-dl="' + f.id + '" data-name="' + esc(f.filename) + '">' + esc(f.filename) + '</a><span class="muted" style="white-space:nowrap">' + fmtSize(f.size_bytes || 0) + (!isAppr(S.cur.change.status) ? ' <button class="btn-x" data-rm="' + f.id + '" title="Retirer">×</button>' : '') + '</span></div>').join('') +
+    (isAppr(S.cur.change.status) ? '' : '<div class="dropzone" data-kind="' + k + '">Glisser un fichier ici ou cliquer<input type="file" hidden></div>') + '</div>').join('');
+  $('docs').querySelectorAll('[data-dl]').forEach(a => a.onclick = () => downloadFile('file', a.dataset.dl, a.dataset.name));
+  $('docs').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { if (!confirm('Retirer ce document ?')) return; try { await api('fileDelete', { id: S.cur.change.id, fileId: b.dataset.rm }); await reloadCur(); } catch (e) { toast(e.message, true); } });
+  $('docs').querySelectorAll('.dropzone').forEach(z => {
+    const inp = z.querySelector('input');
+    z.onclick = ev => { if (ev.target === z) inp.click(); };
+    inp.onchange = () => { if (inp.files[0]) uploadFile(z, inp.files[0]); };
+    z.ondragover = ev => { ev.preventDefault(); z.classList.add('over'); }; z.ondragleave = () => z.classList.remove('over');
+    z.ondrop = ev => { ev.preventDefault(); z.classList.remove('over'); if (ev.dataTransfer.files[0]) uploadFile(z, ev.dataTransfer.files[0]); };
+  });
+}
+async function uploadFile(zone, file) {
+  const RAW = 1572864;
+  if (file.size > 20 * 1024 * 1024) { toast('Fichier trop volumineux (max 20 Mo).', true); return; }
+  const kind = zone.dataset.kind, uploadId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+  const n = Math.max(1, Math.ceil(file.size / RAW));
+  try {
+    for (let i = 0; i < n; i++) {
+      zone.textContent = 'Téléversement… ' + Math.round(i / n * 100) + ' %';
+      const buf = new Uint8Array(await file.slice(i * RAW, (i + 1) * RAW).arrayBuffer());
+      let bin = ''; for (let j = 0; j < buf.length; j += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(j, j + 0x8000));
+      await api('fileChunk', { id: S.cur.change.id, uploadId, idx: i, data: btoa(bin) });
+    }
+    zone.textContent = 'Assemblage…';
+    await api('fileFinish', { id: S.cur.change.id, uploadId, count: n, kind, filename: file.name });
+    toast('Document ajouté.');
+    await reloadCur();
+  } catch (e) { toast(e.message, true); renderDocs(); }
+}
+
+/* ---------- Demande de prix aux sous-traitants ---------- */
+function renderPrix() {
+  const c = S.cur.change, prs = c.price_requests || [], canAsk = ['brouillon', 'attente_prix'].includes(c.status);
+  $('prix-card').classList.toggle('hidden', !canAsk && !prs.length);
+  $('btn-prix').classList.toggle('hidden', !canAsk);
+  $('prix').innerHTML = prs.length ? '<table class="list"><thead><tr><th>Sous-traitant</th><th>Courriel</th><th>Demandé le</th><th>Relances</th><th>Prix</th></tr></thead><tbody>' +
+    prs.map((p, i) => '<tr><td><b>' + esc(p.name) + '</b></td><td style="font-size:12.5px">' + esc(p.email) + '</td><td>' + fmtDate(p.sent_at) + '</td><td>' + (p.reminders || 0) + (p.last_reminder_at ? ' <span class="muted">(dernière ' + fmtDate(p.last_reminder_at) + ')</span>' : '') + '</td><td>' +
+      (p.received_at ? '<span class="badge b-recu">Reçu le ' + fmtDate(p.received_at) + '</span>' : '<span class="badge b-attente_prix">En attente</span>') +
+      (canAsk ? ' <button class="btn sm" data-pr="' + i + '">' + (p.received_at ? 'Annuler' : 'Prix reçu') + '</button>' : '') + '</td></tr>').join('') +
+    '</tbody></table><div class="muted" style="font-size:12.5px;margin-top:6px">Une relance groupée est envoyée automatiquement après 5 jours, puis tous les 5 jours, tant qu\'une ligne de ce sous-traitant est encore à 0 $. Dès que ses lignes ont un prix, la demande passe à « Reçu » automatiquement.</div>'
+    : '<div class="muted" style="font-size:13px">Aucune demande de prix. Déposez la demande du professionnel (section 1), puis cliquez « Demander des prix… ».</div>';
+  $('prix').querySelectorAll('[data-pr]').forEach(b => b.onclick = async () => {
+    const p = prs[+b.dataset.pr];
+    try { await api('markPrice', { id: c.id, email: p.email, received: !p.received_at }); await reloadCur(); } catch (e) { toast(e.message, true); }
+  });
+}
+$('btn-prix').onclick = async () => {
+  const c = S.cur.change;
+  if (!(await save(true))) return;
+  const sel = [], seen = new Set();
+  const add = (name, email, id) => { const k = (email || name).toLowerCase(); if (!name || seen.has(k)) return; seen.add(k); sel.push({ name, email: email || '', supplierItemId: id || '', contact: '' }); };
+  (c.price_requests || []).forEach(p => seen.add(String(p.email).toLowerCase()));
+  S.lines.forEach(l => { if (l.supplierName && !n0(l.price)) add(l.supplierName, l.supplierEmail, l.supplierItemId); });   // lignes à 0 $ avec sous-traitant
+  const rc = await api('recipients', { projectItemId: S.pid }).catch(() => ({ cc: [] }));
+  const defMsg = 'Bonjour [FOURNISSEUR],\n\nVeuillez trouver ci-joint une demande de changement pour le projet ' + c.project_number + ' — ' + c.project_name + (c.title ? ' (' + c.title + ')' : '') + '.\n\nMerci de nous transmettre votre prix détaillé (ventilation) par courriel, en format PDF, dans les meilleurs délais.';
+  const m = openModal('<div class="modal-head"><h2>Demander des prix — ' + esc(numOf(c)) + '</h2><button class="x" data-close>×</button></div><div class="modal-body">' +
+    '<div class="muted" style="font-size:12.5px;margin-bottom:6px">La demande du professionnel (section 1) est jointe au courriel. Sont proposés les sous-traitants des lignes de ventilation encore à 0 $. Un courriel est envoyé à chaque sous-traitant coché.</div>' +
+    '<div id="pm-rows"></div><label class="f" style="margin-top:8px">Ajouter un sous-traitant<input id="pm-add" placeholder="Rechercher un fournisseur…"></label>' +
+    '<label class="f" style="margin-top:8px">Message (« [FOURNISSEUR] » = nom du contact)<textarea id="pm-msg" rows="6">' + esc(defMsg) + '</textarea></label>' +
+    '<div class="muted" style="font-size:12.5px;margin-top:6px">En copie (Cc) : ' + esc((rc.cc || []).join(', ')) + '</div></div>' +
+    '<div class="modal-foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="pm-send">Envoyer les demandes</button></div>');
+  const draw = () => {
+    m.querySelector('#pm-rows').innerHTML = sel.length ? sel.map((x, i) => '<div class="prow"><label><input type="checkbox" class="pm-on" data-i="' + i + '" checked> <b>' + esc(x.name) + '</b></label><input class="pm-mail" data-i="' + i + '" placeholder="Courriel" value="' + esc(x.email) + '"><button class="btn-x" data-prm="' + i + '">×</button></div>').join('') : '<div class="muted" style="font-size:13px">Aucun sous-traitant choisi.</div>';
+    m.querySelectorAll('.pm-mail').forEach(inp => inp.oninput = () => { sel[+inp.dataset.i].email = inp.value.trim(); });
+    m.querySelectorAll('[data-prm]').forEach(b => b.onclick = () => { sel.splice(+b.dataset.prm, 1); draw(); });
+  };
+  draw();
+  const addInp = m.querySelector('#pm-add'); addInp.dataset.fixed = '1';
+  attachSuggest(addInp, term => { const t = term.toLowerCase(); return S.lk.suppliers.filter(s => !t || s.name.toLowerCase().includes(t)).slice(0, 30).map(s => ({ label: s.name, sub: s.email, s })); },
+    it => { add(it.s.name, it.s.email, it.s.id); addInp.value = ''; draw(); });
+  m.querySelector('#pm-send').onclick = async () => {
+    const chosen = Array.from(m.querySelectorAll('.pm-on')).filter(x => x.checked).map(x => sel[+x.dataset.i]);
+    if (!chosen.length) { toast('Choisissez au moins un sous-traitant.', true); return; }
+    const miss = chosen.find(x => !x.email); if (miss) { toast('Courriel manquant pour ' + miss.name + '.', true); return; }
+    const sb = m.querySelector('#pm-send'); sb.disabled = true; sb.textContent = 'Envoi…';
+    try {
+      const r = await api('requestPrices', { id: c.id, suppliers: chosen, message: m.querySelector('#pm-msg').value, cc: rc.cc || [] });
+      closeModal(m); toast('Demande de prix envoyée à ' + r.sent.length + ' sous-traitant(s). Statut : En attente de prix.'); await reloadCur();
+    } catch (e) { toast(e.message, true); sb.disabled = false; sb.textContent = 'Envoyer les demandes'; }
+  };
+};
+
+/* ---------- Versions envoyées ---------- */
+function renderVersions() {
+  const v = S.cur.versions || [];
+  $('versions').innerHTML = v.length ? '<table class="list"><thead><tr><th>Rév.</th><th>Envoyé le</th><th>Par</th><th>À</th><th>Cc</th><th style="text-align:right">Total</th><th></th></tr></thead><tbody>' +
+    v.map(x => '<tr><td><b>' + x.rev + '</b></td><td>' + fmtDT(x.sent_at) + '</td><td>' + esc(x.sent_by || '') + '</td><td style="font-size:12.5px">' + esc(x.recipients || '') + '</td><td style="font-size:12.5px">' + esc(x.cc || '') + '</td><td style="text-align:right">' + money(x.total) + '</td><td><button class="btn sm" data-v="' + x.id + '" data-name="' + esc(x.filename || 'avis.pdf') + '">Voir le PDF</button></td></tr>').join('') + '</tbody></table>'
+    : '<div class="muted" style="font-size:13px">Aucun envoi pour l\'instant.</div>';
+  $('versions').querySelectorAll('[data-v]').forEach(b => b.onclick = () => downloadFile('version', b.dataset.v, b.dataset.name));
+}
+
+/* ---------- Approbation ---------- */
+function spHtml(c) {
+  const st = c.sharepoint_status;
+  if (!st) return '';
+  if (st === 'reussi') return '<div class="spbox ok">✔ Copie déposée dans SharePoint (Projets / 0 - Projet partage / Directives)' + (c.sharepoint_url ? ' — <a href="' + esc(c.sharepoint_url) + '" target="_blank" rel="noopener">ouvrir</a>' : '') + '</div>';
+  if (st === 'echec') return '<div class="spbox bad">✖ Échec de l\'envoi dans SharePoint : ' + esc(c.sharepoint_error || 'erreur inconnue') + ' <button class="btn sm" id="sp-retry">Réessayer</button></div>';
+  if (st === 'non_configure') return '<div class="spbox wait">SharePoint n\'est pas configuré sur le serveur : aucune copie déposée. <button class="btn sm" id="sp-retry">Réessayer</button></div>';
+  return '<div class="spbox wait">Envoi SharePoint en cours… <button class="btn sm" id="sp-retry">Réessayer</button></div>';
+}
+function renderApproval() {
+  const c = S.cur.change, files = S.cur.files || [], hasSigned = files.some(f => f.kind === 'signed');
+  let h = '';
+  if (isAppr(c.status)) {
+    h += '<div style="font-size:14px">Approuvée par les professionnels le <b>' + fmtDate(c.signed_date || c.approved_at) + '</b>.' +
+      (c.status === 'attente_avenant' ? ' <span class="badge b-attente_avenant">En attente de l\'avenant</span> <button class="btn sm" id="btn-avrecu">Marquer « Avenant reçu »</button>' : '') +
+      (c.status === 'avenant_recu' ? ' <span class="badge b-avenant_recu">Avenant reçu</span>' : '') + '</div>' + spHtml(c);
+    const pos = c.po_ids || [];
+    h += '<div style="margin-top:12px"><b>Bons de commande brouillons aux sous-traitants</b></div>';
+    h += pos.length ? '<table class="list" style="margin-top:6px"><thead><tr><th>Bon</th><th>Sous-traitant</th><th style="text-align:right">Sous-total</th></tr></thead><tbody>' + pos.map(p => '<tr><td><b>' + esc(p.po_number) + '</b></td><td>' + esc(p.supplier) + '</td><td style="text-align:right">' + money(p.subtotal) + '</td></tr>').join('') + '</tbody></table><div style="margin-top:8px"><a class="btn primary" href="/">Réviser et envoyer dans « Bons de commande »</a></div>'
+      : '<div class="muted" style="font-size:13px;margin-top:4px">Aucun bon créé (aucune ligne avec sous-traitant et code d\'activité).</div> <button class="btn sm" id="po-retry">Réessayer la création des bons</button>';
+  } else if (['refuse', 'annule'].includes(c.status)) {
+    h += '<div class="muted">Demande ' + (STATUS[c.status] || c.status).toLowerCase() + 'e.</div>';
+  } else {
+    h += '<div style="font-size:13.5px">Quand tous les professionnels ont approuvé, téléversez le document signé (section 3), puis approuvez : une copie ira dans SharePoint et les bons de commande brouillons seront créés pour les sous-traitants des lignes.</div>' +
+      '<div style="display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" id="btn-approve"' + (hasSigned ? '' : ' disabled') + '>Marquer approuvée</button>' +
+      (hasSigned ? '' : '<span class="muted" style="font-size:12.5px">Document signé requis.</span>') +
+      '<span class="spacer"></span><button class="btn" id="btn-refuse">Refusée</button><button class="btn danger" id="btn-cancel">Annuler la demande</button></div>';
+  }
+  $('appr').innerHTML = h;
+  const bind = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  bind('btn-approve', approve);
+  bind('btn-avrecu', async () => { if (!confirm('Confirmer que l\'avenant incluant cette directive a été reçu ?')) return; try { await api('setStatus', { id: c.id, status: 'avenant_recu' }); await reloadCur(); } catch (e) { toast(e.message, true); } });
+  bind('btn-refuse', () => setStatus('refuse')); bind('btn-cancel', () => setStatus('annule'));
+  bind('sp-retry', async () => { try { const r = await api('spRetry', { id: c.id }); toast(r.sharepoint.status === 'reussi' ? 'Copie déposée dans SharePoint.' : 'SharePoint : ' + (r.sharepoint.error || r.sharepoint.status), r.sharepoint.status !== 'reussi'); await reloadCur(); } catch (e) { toast(e.message, true); } });
+  bind('po-retry', async () => { try { const r = await api('createPos', { id: c.id }); (r.warnings || []).forEach(w => toast(w, true)); await reloadCur(); } catch (e) { toast(e.message, true); } });
+}
+async function approve() {
+  if (!(await save(true))) return;
+  if (!confirm('Approuver cette directive ? Le document signé sera copié dans SharePoint et les bons de commande brouillons seront créés. Les lignes ne seront plus modifiables.')) return;
+  const b = $('btn-approve'); b.disabled = true; b.textContent = 'Traitement…';
+  try {
+    const r = await api('approve', { id: S.cur.change.id });
+    await reloadCur();
+    const sp = r.sharepoint || {};
+    const msg = "Approuvée : en attente de l'avenant. " + (sp.status === 'reussi' ? 'Copie SharePoint : OK. ' : sp.status === 'echec' ? 'Copie SharePoint : ÉCHEC (' + (sp.error || '') + '). ' : 'SharePoint non configuré. ') + (r.pos.length ? r.pos.length + ' bon(s) de commande brouillon créé(s).' : 'Aucun bon créé.');
+    toast(msg, sp.status !== 'reussi');
+    (r.warnings || []).forEach(w => toast(w, true));
+  } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = 'Marquer approuvée'; }
+}
+async function setStatus(st) {
+  const reason = prompt(st === 'refuse' ? 'Motif du refus (facultatif) :' : "Motif de l'annulation (facultatif) :");
+  if (reason === null) return;
+  try { await api('setStatus', { id: S.cur.change.id, status: st, reason }); await reloadCur(); } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- Journal ---------- */
+const EV = { prix_demande: 'Prix demandé', prix_recu: 'Prix reçu', prix_annule: 'Prix : réception annulée', relance_prix: 'Relance de prix', avenant_recu: 'Avenant reçu', fichier_quote: 'Soumission jointe', cree: 'Création', envoye: 'Envoi', renvoye: 'Renvoi (révision)', commentaire: 'Commentaire reçu', approuve: 'Approuvée', refuse: 'Refusée', annule: 'Annulée', en_revision: 'En révision', sharepoint_ok: 'SharePoint : copie déposée', sharepoint_echec: 'SharePoint : échec', bons_crees: 'Bons de commande créés', fichier_ddc: 'Document du professionnel ajouté', fichier_comment: 'Document de commentaires ajouté', fichier_signed: 'Document signé ajouté', fichier_other: 'Document ajouté', fichier_supprime: 'Document retiré' };
+function renderEvents() {
+  $('events').innerHTML = (S.cur.events || []).map(e => '<div>' + fmtDT(e.at) + ' — <b>' + esc(EV[e.event] || e.event) + '</b>' + (e.event !== 'commentaire' && e.detail ? ' · ' + esc(e.detail) : '') + (e.actor && e.actor !== 'systeme' ? ' <span class="muted">(' + esc(e.actor) + ')</span>' : '') + '</div>').join('');
+}
+
+/* ---------- Envoi aux professionnels ---------- */
+$('d-send').onclick = async () => {
+  const b = $('d-send'); b.disabled = true;
+  try {
+    if (!(await save(true))) return;
+    const [rc] = await Promise.all([api('recipients', { projectItemId: S.pid })]);
+    const c = S.cur.change, rev = c.sent_at ? (c.rev || 0) + 1 : 0;
+    const groups = {}; rc.recipients.forEach(r => (groups[r.group] = groups[r.group] || []).push(r));
+    const ddcFiles = (S.cur.files || []).filter(f => f.kind === 'ddc' || f.kind === 'other');
+    const defSubject = 'Avis de changement ' + numOf(c) + (rev ? ' Rév.' + rev : '') + ' — Projet ' + c.project_number + ' ' + c.project_name;
+    const defMsg = 'Bonjour,\n\nVeuillez trouver ci-joint l\'avis de changement ' + numOf(c) + (rev ? ' (révision ' + rev + ')' : '') + ' pour le projet ' + c.project_number + '.\n\nMerci de nous faire part de vos commentaires ou de votre approbation.';
+    const m = openModal('<div class="modal-head"><h2>Envoyer l\'avis ' + esc(numOf(c)) + (rev ? ' Rév.' + rev : '') + '</h2><button class="x" data-close>×</button></div><div class="modal-body">' +
+      '<div class="mail-list">' + (Object.keys(groups).length ? Object.keys(groups).map(g => '<div class="mail-grp">' + esc(g) + '</div>' + groups[g].map(r => '<label class="mail-row"><input type="checkbox" class="rc" value="' + esc(r.email) + '" ' + (g !== "Maître de l'ouvrage" || true ? '' : '') + '><span>' + esc(r.name || r.company || r.email) + '<small>' + esc([r.company && r.name ? r.company : '', r.email].filter(Boolean).join(' · ')) + '</small></span></label>').join('')).join('') : '<div class="empty">Aucun intervenant avec courriel. Complétez la page « Intervenants » du projet.</div>') + '</div>' +
+      '<label class="f" style="margin-top:10px">Destinataires supplémentaires (courriels séparés par une virgule)<input id="m-extra"></label>' +
+      '<div class="muted" style="font-size:12.5px;margin:6px 0">En copie (Cc) : ' + esc(rc.cc.join(', ')) + '</div>' +
+      '<label class="f">Objet<input id="m-subj" value="' + esc(defSubject) + '"></label>' +
+      '<label class="f" style="margin-top:8px">Message<textarea id="m-msg" rows="6">' + esc(defMsg) + '</textarea></label>' +
+      (ddcFiles.length ? '<div style="margin-top:8px;font-size:13px"><b>Joindre aussi :</b>' + ddcFiles.map(f => '<label style="display:block"><input type="checkbox" class="af" value="' + f.id + '"> ' + esc(f.filename) + '</label>').join('') + '</div>' : '') +
+      '<div class="muted" style="font-size:12.5px;margin-top:8px">Le PDF de l\'avis est joint automatiquement. Le statut passera à « Envoyé ».</div>' +
+      '</div><div class="modal-foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="m-send">Envoyer</button></div>');
+    m.querySelector('#m-send').onclick = async () => {
+      const to = Array.from(m.querySelectorAll('.rc:checked')).map(x => x.value).concat(m.querySelector('#m-extra').value.split(/[,;\s]+/).filter(Boolean));
+      if (!to.length) { toast('Choisissez au moins un destinataire.', true); return; }
+      const sb = m.querySelector('#m-send'); sb.disabled = true; sb.textContent = 'Envoi…';
+      try {
+        const r = await api('send', { id: c.id, to, subject: m.querySelector('#m-subj').value, message: m.querySelector('#m-msg').value, fileIds: Array.from(m.querySelectorAll('.af:checked')).map(x => x.value) });
+        closeModal(m); toast('Avis envoyé à ' + r.sentTo.length + ' destinataire(s) (révision ' + r.rev + ').'); await reloadCur();
+      } catch (e) { toast(e.message, true); sb.disabled = false; sb.textContent = 'Envoyer'; }
+    };
+  } catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+
+$('btn-summary').onclick = async () => {
+  const b = $('btn-summary'); b.disabled = true;
+  try { showPdfModal(await api('summary', { projectItemId: S.pid })); } catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+
+initClerkAuth();
+
+function showPdfModal(r) {
+  const url = URL.createObjectURL(b64ToBlob(r.pdfBase64, 'application/pdf'));
+  const m = openModal('<div class="modal-head"><h2>Aperçu — ' + esc(r.filename) + '</h2><a class="btn" href="' + url + '" download="' + esc(r.filename) + '">Télécharger</a><button class="x" data-close>×</button></div><div class="modal-body" style="padding:0"><iframe src="' + url + '" style="width:100%;height:72vh;border:0"></iframe></div>', 'xl');
+  m._cleanup = () => URL.revokeObjectURL(url);
+}
+
+(function(){var a=document.getElementById('nav-cfg');if(!a)return;var tries=0;
+function show(){a.style.display='';var e=document.getElementById('nav-emp');if(e)e.style.display='';}
+async function go(){try{var c=window.Clerk;if(!c||!c.session){if(++tries<120)return setTimeout(go,500);return show();}
+var k='finRole:'+(c.user&&c.user.id),ch=sessionStorage.getItem(k);if(ch==='1')return show();if(ch==='0')return;
+var t=await c.session.getToken();var r=await fetch('/api/invoices',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify({action:'me'})});
+var j=await r.json();var ok=!!(j.isAdmin||j.isAccounting);sessionStorage.setItem(k,ok?'1':'0');if(ok)show();}catch(e){show();}}
+go();})();
+(function(){var a=document.getElementById('nav-sch');if(!a)return;var tries=0;
+function paint(n){var o=a.querySelector('.navbadge');if(o)o.remove();if(n>0){var s=document.createElement('span');s.className='navbadge';s.textContent=n;s.title=n+' projet(s) en cours sans échéancier envoyé depuis 30 jours';a.appendChild(s);}}
+async function go(){try{var c=window.Clerk;if(!c||!c.session){if(++tries<120)return setTimeout(go,500);return;}
+var k='finSchBadge',ch=null;try{ch=JSON.parse(sessionStorage.getItem(k)||'null');}catch(e){}
+if(ch&&Date.now()-ch.at<600000)return paint(ch.n);
+var t=await c.session.getToken();var r=await fetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},body:JSON.stringify({action:'badge'})});
+var j=await r.json();if(typeof j.count==='number'){sessionStorage.setItem(k,JSON.stringify({at:Date.now(),n:j.count}));paint(j.count);}}catch(e){}}
+go();})();
+
+/* ===== Mobile : étiquettes de cartes + pages réservées au poste de travail ===== */
+(function () {
+  var mq = window.matchMedia ? window.matchMedia('(max-width:760px)') : null;
+  var isMob = function () { return mq && mq.matches; };
+  if (isMob() && /^\/(dashboard|fournisseurs|configuration)\/?$/.test(location.pathname)) { location.replace('/'); return; }
+  function label() {
+    if (!isMob()) return;
+    document.querySelectorAll('table.list').forEach(function (t) {
+      var ths = t.querySelectorAll('thead th'); if (!ths.length) return;
+      t.querySelectorAll('tbody tr').forEach(function (tr) {
+        if (tr.getAttribute('data-lb') === '1' || tr.classList.contains('pgrp')) return;
+        var tds = tr.children; if (tds.length < 2) return;
+        for (var i = 0; i < tds.length && i < ths.length; i++) { var l = (ths[i].textContent || '').trim(); if (l && !tds[i].hasAttribute('data-l')) tds[i].setAttribute('data-l', l); }
+        tr.setAttribute('data-lb', '1');
+      });
+    });
+  }
+  var pend = false;
+  new MutationObserver(function () { if (pend) return; pend = true; setTimeout(function () { pend = false; label(); }, 60); }).observe(document.documentElement, { childList: true, subtree: true });
+  label();
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Signature du bon de commande — Les Entreprises Philippe Denis</title>
+<link rel="icon" type="image/png" href="/exacto-icon.png">
+<style>
+  :root { --bg:#f3f5fa; --border:#dbe1ee; --text:#17223b; --muted:#6a7691; --accent:#2f5bea; --accent-dark:#2347c0; --ok:#12805c; --bad:#c0263d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif; font-size:15px; }
+  header { background:#fff; border-bottom:1px solid var(--border); padding:12px 20px; font-weight:700; }
+  main { max-width:900px; margin:0 auto; padding:20px 14px 60px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
+  h1 { font-size:21px; margin:0 0 4px; }
+  .muted { color:var(--muted); }
+  .kv { display:grid; grid-template-columns:140px 1fr; gap:6px 12px; margin-top:12px; font-size:14.5px; }
+  .kv .k { color:var(--muted); font-weight:600; }
+  iframe { width:100%; height:70vh; border:1px solid var(--border); border-radius:8px; background:#fff; }
+  .open-link { display:inline-block; margin:8px 0 0; font-size:14px; }
+  label.f { display:block; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:12px; }
+  label.f input[type=text] { display:block; width:100%; margin-top:4px; height:40px; border:1px solid var(--border); border-radius:8px; padding:0 11px; font-size:15px; font-family:inherit; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text); }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; }
+  .tabs button { border:1px solid var(--border); background:#fff; padding:7px 14px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; }
+  .tabs button.active { background:#e8eeff; border-color:var(--accent); color:var(--accent-dark); }
+  canvas#pad { width:100%; height:150px; border:1px dashed #9aa8c7; border-radius:8px; background:#fcfdff; touch-action:none; display:block; }
+  #typed { display:none; width:100%; height:80px; border:1px dashed #9aa8c7; border-radius:8px; background:#fcfdff; text-align:center; font-family:'Brush Script MT','Segoe Script','Snell Roundhand',cursive; font-size:44px; padding-top:12px; overflow:hidden; white-space:nowrap; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button.btn { height:42px; padding:0 20px; border-radius:9px; border:1px solid var(--border); background:#fff; font-weight:600; font-size:15px; cursor:pointer; color:var(--text); }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.btn.primary:hover { background:var(--accent-dark); }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; }
+  .err { background:#fde4e8; color:var(--bad); border-radius:8px; padding:10px 12px; margin-top:12px; }
+  .okbox { background:#dff5ec; color:var(--ok); border-radius:10px; padding:16px; font-size:16px; }
+  .hidden { display:none !important; }
+  .chk { display:flex; gap:10px; align-items:flex-start; margin:14px 0; font-size:14.5px; }
+  .chk input { margin-top:3px; width:18px; height:18px; }
+</style>
+</head>
+<body>
+<header>Les Entreprises Philippe Denis inc. — Bon de commande</header>
+<main>
+  <div id="loading" class="card muted">Chargement du bon de commande…</div>
+  <div id="fatal" class="card hidden"><h1>Lien indisponible</h1><p id="fatal-msg" class="muted"></p></div>
+
+  <div id="content" class="hidden">
+    <div class="card">
+      <h1>Bon de commande <span id="po-number"></span></h1>
+      <div class="muted" id="po-project"></div>
+      <div class="kv">
+        <span class="k">Fournisseur</span><span id="po-supplier"></span>
+        <span class="k">Date</span><span id="po-date"></span>
+        <span class="k">Montant total</span><span id="po-total"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>Document à signer</b> <span class="muted">(bon de commande, conditions générales et soumission)</span>
+      <div style="margin-top:10px"><iframe id="pdf" title="Bon de commande"></iframe></div>
+      <a id="pdf-open" class="open-link" target="_blank" rel="noopener">Ouvrir le PDF dans un nouvel onglet (recommandé sur téléphone)</a>
+    </div>
+
+    <div class="card" id="sign-card">
+      <b>Signature électronique</b>
+      <p class="muted" style="margin:6px 0 14px">Après avoir lu le document ci-dessus, inscrivez votre nom, puis signez.</p>
+      <label class="f">Nom complet *<input type="text" id="s-name" autocomplete="name"></label>
+      <label class="f">Titre / fonction<input type="text" id="s-title" autocomplete="organization-title" placeholder="Ex. Président, Estimateur…"></label>
+      <div class="tabs"><button type="button" id="tab-draw" class="active">Dessiner</button><button type="button" id="tab-type">Taper</button></div>
+      <canvas id="pad"></canvas>
+      <div id="typed"></div>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="clear">Effacer</button></div>
+      <label class="chk"><input type="checkbox" id="accept"><span>Je, soussigné(e), accepte ce bon de commande aux termes et conditions qui y sont stipulés, et je reconnais que ma signature électronique a la même valeur qu'une signature manuscrite.</span></label>
+      <div class="row"><button type="button" class="btn primary" id="go">Signer le bon de commande</button></div>
+      <div id="err" class="err hidden"></div>
+    </div>
+
+    <div class="card okbox hidden" id="done">
+      <b>Merci, le bon de commande est signé.</b>
+      <p style="margin:8px 0 0">Une copie signée vous est envoyée par courriel.
+      <a id="dl" href="#" style="margin-left:6px">Télécharger la copie signée</a></p>
+    </div>
+  </div>
+</main>
+
+<script>
+const T = new URLSearchParams(location.search).get('t') || '';
+const $ = id => document.getElementById(id);
+const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtDate(d) { const m = String(d || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] + '/' + m[1] : (d || ''); }
+function fatal(msg) { $('loading').classList.add('hidden'); $('content').classList.add('hidden'); $('fatal').classList.remove('hidden'); $('fatal-msg').textContent = msg; }
+
+async function load() {
+  if (!T) return fatal("Lien invalide.");
+  try {
+    const r = await fetch('/api/sign?a=info&t=' + encodeURIComponent(T));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return fatal(j.error || 'Lien invalide ou expiré.');
+    const p = j.po;
+    $('loading').classList.add('hidden'); $('content').classList.remove('hidden');
+    $('po-number').textContent = p.po_number;
+    $('po-project').textContent = p.project_number + (p.project_name ? ' — ' + p.project_name : '');
+    $('po-supplier').textContent = p.supplier_name; $('po-date').textContent = fmtDate(p.po_date); $('po-total').textContent = money(p.total);
+    const pdfUrl = '/api/sign?a=pdf&t=' + encodeURIComponent(T);
+    $('pdf').src = pdfUrl; $('pdf-open').href = pdfUrl;
+    if (p.status === 'signe') showDone(p);
+    initPad();
+  } catch (e) { fatal('Impossible de joindre le serveur : ' + e.message); }
+}
+
+function showDone(p) {
+  $('sign-card').classList.add('hidden'); $('done').classList.remove('hidden');
+  $('dl').href = '/api/sign?a=signed&t=' + encodeURIComponent(T);
+  if (p && p.signer_name) $('done').querySelector('b').textContent = 'Ce bon de commande a été signé par ' + p.signer_name + '.';
+}
+
+/* ---- Signature : dessin ou texte ---- */
+let mode = 'draw', drawn = false;
+function initPad() {
+  const c = $('pad'), ratio = Math.max(window.devicePixelRatio || 1, 1);
+  c.width = c.clientWidth * ratio; c.height = c.clientHeight * ratio;
+  const ctx = c.getContext('2d'); ctx.scale(ratio, ratio); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b1b4d';
+  let down = false, last = null;
+  const pos = e => { const r = c.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  c.addEventListener('pointerdown', e => { down = true; last = pos(e); c.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(last.x + .1, last.y + .1); ctx.stroke(); drawn = true; e.preventDefault(); });
+  c.addEventListener('pointermove', e => { if (!down) return; const p = pos(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; e.preventDefault(); });
+  ['pointerup', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => { down = false; }));
+  $('clear').onclick = () => { ctx.clearRect(0, 0, c.width, c.height); drawn = false; $('typed').textContent = ''; };
+  $('tab-draw').onclick = () => setMode('draw'); $('tab-type').onclick = () => setMode('type');
+  $('s-name').addEventListener('input', () => { if (mode === 'type') $('typed').textContent = $('s-name').value; });
+}
+function setMode(m) {
+  mode = m;
+  $('tab-draw').classList.toggle('active', m === 'draw'); $('tab-type').classList.toggle('active', m === 'type');
+  $('pad').style.display = m === 'draw' ? 'block' : 'none'; $('typed').style.display = m === 'type' ? 'block' : 'none';
+  if (m === 'type') $('typed').textContent = $('s-name').value;
+}
+
+function signaturePng() {
+  if (mode === 'type') {
+    const txt = $('s-name').value.trim(); if (!txt) return null;
+    const c = document.createElement('canvas'); c.width = 900; c.height = 220; const x = c.getContext('2d');
+    x.fillStyle = '#0b1b4d'; x.textBaseline = 'middle'; x.textAlign = 'center';
+    let size = 120; const font = s => s + 'px "Brush Script MT","Segoe Script","Snell Roundhand",cursive';
+    x.font = font(size); while (x.measureText(txt).width > 840 && size > 30) { size -= 4; x.font = font(size); }
+    x.fillText(txt, 450, 110);
+    return c.toDataURL('image/png');
+  }
+  if (!drawn) return null;
+  // recadre le tracé pour un PNG compact
+  const src = $('pad'), x = src.getContext('2d'), w = src.width, h = src.height;
+  const data = x.getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = 0, y1 = 0;
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) if (data[(yy * w + xx) * 4 + 3] > 10) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
+  if (x1 <= x0 || y1 <= y0) return null;
+  const pad = 8, cw = x1 - x0 + 2 * pad, ch = y1 - y0 + 2 * pad;
+  const out = document.createElement('canvas'); out.width = cw; out.height = ch;
+  out.getContext('2d').drawImage(src, x0 - pad, y0 - pad, cw, ch, 0, 0, cw, ch);
+  return out.toDataURL('image/png');
+}
+
+$('go').addEventListener('click', async () => {
+  const err = $('err'); err.classList.add('hidden');
+  const name = $('s-name').value.trim();
+  const fail = m => { err.textContent = m; err.classList.remove('hidden'); };
+  if (name.length < 2) return fail('Indiquez votre nom complet.');
+  const png = signaturePng();
+  if (!png) return fail(mode === 'draw' ? 'Dessinez votre signature dans le cadre.' : 'Inscrivez votre nom pour générer la signature.');
+  if (!$('accept').checked) return fail("Cochez la case « Je, soussigné(e), accepte… » pour continuer.");
+  const btn = $('go'); btn.disabled = true; btn.textContent = 'Signature en cours…';
+  try {
+    const r = await fetch('/api/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t: T, name, title: $('s-title').value.trim(), accept: true, signature: png }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Erreur lors de la signature.');
+    showDone({ signer_name: name }); window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) { fail(e.message); btn.disabled = false; btn.textContent = 'Signer le bon de commande'; }
+});
+
+load();
+</script>
+</body>
+</html>
