@@ -1,6 +1,6 @@
 // api/punch.js
 // Début / changement de chantier / fin de poinçon (interface mobile employé). Écrit dans le
-// board Monday "⏱️ Poinçons". Nécessite un jeton de session employé (voir action 'login'
+// tableau "⏱️ Poinçons". Nécessite un jeton de session employé (voir action 'login'
 // ci-dessous et api/_auth/employeeAuth.js — authentification maison téléphone + mot de passe,
 // EPD uniquement ; ne concerne PAS les comptes admin/bureau ni les tenants, qui restent sur
 // Clerk — voir le dispatcher verifyCaller() dans le handler plus bas).
@@ -55,7 +55,7 @@ const { verifyToken } = require('@clerk/backend');
 const { verifyEmployeeToken, hashPassword, verifyPassword, createEmployeeToken, toE164 } = require('./_auth/employeeAuth');
 // Utilisé par les actions Loi 25 (gpsConsentStatus/recordGpsConsent/myDataExport, et les
 // ressources 'settings'/'incidents'/'dataRequests' fusionnées depuis l'ancien api/privacy.js —
-// voir plus bas) — le reste de ce fichier continue de fonctionner à 100% avec Monday, sans base
+// voir plus bas) — le reste de ce fichier continue de fonctionner à 100% avec l’ancien système, sans base
 // Postgres. Voir db/schema.js (privacyConsents/privacyIncidents/privacyDataRequests,
 // employeeCredentials).
 const { eq, and, desc } = require('drizzle-orm');
@@ -107,7 +107,7 @@ const EMP_STATUT_ACTIF_VAL = 1;
 
 // Normalise un numéro de téléphone en 10 chiffres (même convention que formatPhone10() côté
 // admin.html) pour comparer un numéro soumis au login avec la valeur texte libre stockée dans la
-// colonne Monday EMP_PHONE_COL, peu importe son format d'origine (espaces, tirets, indicatif +1).
+// colonne l’ancien système EMP_PHONE_COL, peu importe son format d'origine (espaces, tirets, indicatif +1).
 function phoneDigits10(raw) {
   const digits = String(raw || '').replace(/\D/g, '');
   return (digits.length === 11 && digits[0] === '1') ? digits.slice(1) : digits;
@@ -125,7 +125,7 @@ async function isApprobateur(mondayToken, employeeItemId) {
 
 // Validation serveur du projet (voir audit du 26 août 2026, point #6) : le client (mobile) ne
 // propose que les projets actifs dans sa liste déroulante, mais rien n'empêchait auparavant un
-// appel direct à l'API d'assigner un poinçon à N'IMPORTE QUEL item de Monday (projet terminé,
+// appel direct à l'API d'assigner un poinçon à N'IMPORTE QUEL item de l’ancien système (projet terminé,
 // inexistant, ou même un item d'un autre board). Même board/colonne que employee-today.js.
 const PROJECTS_BOARD = 8371776057;
 const PROJECT_STAGE_COL = 'status3';
@@ -195,7 +195,7 @@ function checkClientClock(clientTimestamp) {
 }
 
 // Résout (ou crée au premier appel) la ligne `tenants` réservée à EPD — voir api/privacy.js pour
-// la même logique côté admin/superuser. Nécessaire parce que ce fichier (100% Monday par ailleurs)
+// la même logique côté admin/superuser. Nécessaire parce que ce fichier (100% l’ancien système par ailleurs)
 // écrit le consentement GPS dans la table Postgres universelle privacy_consents.
 async function resolveEpdTenantId(db) {
   const existing = await db.select().from(schema.tenants).where(eq(schema.tenants.slug, 'epd'));
@@ -526,7 +526,7 @@ module.exports = async function handler(req, res) {
   const employeeItemId = String(meta.employeeItemId);
 
   try {
-    // Absences (remplace le formulaire Monday) : liste de mes demandes + nouvelle demande.
+    // Absences (remplace le formulaire l’ancien système) : liste de mes demandes + nouvelle demande.
     if (action === 'absenceMine' || action === 'absenceCreate') {
       const ab = require('./_lib/absence-db');
       try {

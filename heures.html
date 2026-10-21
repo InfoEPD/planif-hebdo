@@ -400,7 +400,7 @@
       <div class="card" style="margin-bottom:16px;">
         <div style="font-weight:700;margin-bottom:6px;">Conservation des données</div>
         <p style="color:var(--text-secondary);font-size:13px;margin:0 0 10px;">
-          Les poinçons EPD sont stockés dans Monday.com — la purge automatique des coordonnées GPS ne s'applique pas ici (elle est réservée aux tenants hébergés en base de données). Le nombre d'années ci-dessous reste informatif, aligné sur les obligations de conservation des dossiers de paie.
+          Les poinçons EPD sont stockés dans la purge automatique des coordonnées GPS ne s'applique pas ici (elle est réservée aux tenants hébergés en base de données). Le nombre d'années ci-dessous reste informatif, aligné sur les obligations de conservation des dossiers de paie.
         </p>
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
           <label>Conservation dossiers de paie (années, informatif)<input type="number" min="1" step="1" id="priv-retention-punch" style="width:100px;"></label>
@@ -474,7 +474,7 @@ const EMP_EXCLURE_PAIE_COL = 'boolean_mm6hfkq2'; // Exclure de l'export paie (.t
 // (même champ P_STATUT/P_APPROVED_BY/P_REJECTION_COMMENT que les boutons du portail Admin).
 const EMP_APPROBATEUR_COL = 'boolean_mm73h61q';
 // Prime salariale de l'employé (chef d'équipe, chef de groupe, etc.) — board_relation vers
-// PRIMES_BOARD, une seule prime max (allowMultipleItems:false côté Monday + UI en menu simple).
+// PRIMES_BOARD, une seule prime max (allowMultipleItems:false côté l’ancien système + UI en menu simple).
 // Voir Configuration > Primes et Comptes employés.
 const EMP_PRIME_COL = 'board_relation_mm6khzqn';
 const COL_CLERK_ID = 'text_mm6dqed0';
@@ -518,7 +518,7 @@ const P_HEURES_DOUBLE = 'numeric_mm6kefh3';
 // Exclusion de la prime de l'employé (chef d'équipe/chef de groupe) POUR CE POINÇON précis —
 // sémantique INVERSÉE volontairement : coché = prime EXCLUE, vide/décoché (par défaut) = prime
 // appliquée normalement (si l'employé en a une de configurée dans Comptes employés). Ce sens
-// inversé est indispensable car une colonne boolean Monday ne distingue pas de façon fiable
+// inversé est indispensable car une colonne boolean l’ancien système ne distingue pas de façon fiable
 // "jamais touché" de "explicitement décoché" (text vide dans les deux cas) — en inversant le
 // sens, le cas par défaut (vide) correspond justement au comportement voulu par défaut (prime
 // appliquée), donc aucune ambiguïté ne subsiste après un decochage explicite. Voir Vue par
@@ -569,7 +569,7 @@ const CONFIG_ITEM_ID = 12863190818;
 const CONFIG_CODE_ENTREPRISE = 'text_mm6ezfjr';
 const CONFIG_NOM_ENTREPRISE = 'text_mm6h6dqz';
 const CONFIG_ADRESSE = 'long_text_mm6hgrm9';
-// Logo entreprise : stocké en base64 (data URI) découpé sur 8 colonnes long_text (limite Monday
+// Logo entreprise : stocké en base64 (data URI) découpé sur 8 colonnes long_text (limite l’ancien système
 // de 2000 caractères par colonne) — reconstitué/concatené dans loadConfigGenerale(). Voir
 // LOGO_CHUNK_COLS, LOGO_CHUNK_SIZE, saveCompanyLogo() et removeCompanyLogo().
 const LOGO_CHUNK_COLS = ['long_text_mm6hanpm','long_text_mm6hrw72','long_text_mm6h5zmt','long_text_mm6hfmz6',
@@ -992,7 +992,7 @@ async function loadConfiguration() {
 
 // ----- Logo entreprise : compression client-side puis découpage/reconstitution sur les colonnes
 // LOGO_CHUNK_COLS (voir loadConfigGenerale). Redimensionne + recompresse en JPEG (fond blanc) de
-// façon itérative jusqu'à tenir sous la capacité totale des colonnes Monday, pour rester
+// façon itérative jusqu'à tenir sous la capacité totale des colonnes l’ancien système, pour rester
 // compatible avec la limite de 2000 caractères par colonne long_text.
 async function compressLogoFile(file) {
   const dataUrl = await new Promise((resolve, reject) => {
@@ -1435,7 +1435,7 @@ async function loadPoinconsForWeek(silent) {
 
 // ----- Géorepérage GPS (rayon de tolérance par projet) — Vue par employé / Vue par projet -----
 // Réutilise directement le "GPS début"/"GPS fin" déjà stocké sur chaque poinçon (texte
-// "lat,lng") — aucune nouvelle colonne Monday nécessaire côté poinçon : on compare simplement
+// "lat,lng") — aucune nouvelle colonne l’ancien système nécessaire côté poinçon : on compare simplement
 // ces coordonnées à l'adresse + rayon toléré du PROJET DE CE POINÇON (voir Configuration >
 // Restriction de projets), pour chacun des deux relevés séparément.
 function haversineMetersClient(lat1, lng1, lat2, lng2) {
@@ -1993,7 +1993,7 @@ function wireRowAutosave(el) {
     const dateKey = tr.getAttribute('data-date');
     // Ne sauvegarder que si quelque chose a RÉELLEMENT changé dans la ligne — simplement cliquer
     // dedans (pour consulter une ligne, ex. un poinçon encore ouvert) puis en ressortir ne doit
-    // jamais déclencher d'écriture dans Monday (voir aussi computeRowBrut()/saveDayGroup() qui,
+    // jamais déclencher d'écriture dans le système (voir aussi computeRowBrut()/saveDayGroup() qui,
     // en plus de cette protection, n'envoient jamais Début/Fin/totaux fabriqués).
     ['.inp-debut', '.inp-fin', '.inp-km', '.inp-demi', '.inp-double', '.chk-prime-appliquee', '.sel-tache'].forEach(sel => {
       const input = tr.querySelector(sel);
@@ -2168,7 +2168,7 @@ async function saveDayGroup(el, dateKey, opts) {
       const chkPrimeRow = tr.querySelector('.chk-prime-appliquee');
       if (chkPrimeRow) cv[P_PRIME_EXCLUE] = { checked: chkPrimeRow.checked ? 'false' : 'true' };
       // Ne JAMAIS envoyer Début/Fin fabriqué : un poinçon encore ouvert (Fin pas entrée) doit
-      // rester ouvert dans Monday tant qu'un humain n'a pas réellement rempli le champ — voir
+      // rester ouvert dans le système tant qu'un humain n'a pas réellement rempli le champ — voir
       // computeRowBrut(). Idem pour Brut/Ajusté/pauses, qui n'ont de sens que si le segment est
       // complet (sinon on écrirait un total à partir d'une fausse heure de fin à 00:00).
       if (b.hasDebut) cv[P_HDEBUT] = { hour: b.dh, minute: b.dm };
@@ -3483,7 +3483,7 @@ async function saveApprobateur(empId, checked, checkboxEl) {
 }
 
 // Une seule prime max par employé : le menu <select> n'autorise déjà qu'un choix, et la colonne
-// board_relation (EMP_PRIME_COL) a été créée avec allowMultipleItems:false côté Monday. Valeur
+// board_relation (EMP_PRIME_COL) a été créée avec allowMultipleItems:false côté l’ancien système. Valeur
 // vide = aucune prime (item_ids: []).
 async function saveEmployeePrime(empId, primeId) {
   try {
@@ -4026,7 +4026,7 @@ async function exportTxt() {
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
 
-    // Marque chaque poinçon exporté comme "Exporté" (statut déjà existant sur la colonne Monday,
+    // Marque chaque poinçon exporté comme "Exporté" (statut déjà existant sur la colonne l’ancien système,
     // simplement jamais appliqué jusqu'ici) — sans ça, rien n'empêchait de régénérer et renvoyer
     // le même fichier de paie pour la même semaine (voir audit du 26 août 2026, point #3). Les
     // exports PDF/paie ultérieurs pour cette semaine ne reprendront plus ces poinçons puisque
@@ -4326,8 +4326,8 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     if (btn.dataset.tab === 'banques') loadBanques();
     if (btn.dataset.tab === 'feuilles') loadFeuilles();
     if (btn.dataset.tab === 'dashboard') loadDashboard();
-    // Toujours recharger depuis Monday à chaque visite de l'onglet (pas seulement la première
-    // fois) : sinon un renommage de Métier/Tâche fait directement dans Monday ne se reflète
+    // Toujours recharger depuis l’ancien système à chaque visite de l'onglet (pas seulement la première
+    // fois) : sinon un renommage de Métier/Tâche fait directement dans le système ne se reflète
     // jamais tant que la page n'est pas rechargée au complet, puisque metiersCache/tachesCache
     // restaient en mémoire depuis le premier chargement.
     if (btn.dataset.tab === 'config') loadConfiguration();
@@ -4662,5 +4662,6 @@ async function boot() {
 }
 boot();
 </script>
+<script>(function(){var l=document.getElementById('header-logo');if(!l||l.dataset.home)return;l.dataset.home='1';l.style.cursor='pointer';l.title='Retour à l’accueil Exacto';l.addEventListener('click',function(){location.href='/';});})();</script>
 </body>
 </html>

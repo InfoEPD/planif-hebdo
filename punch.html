@@ -1459,7 +1459,7 @@ document.getElementById('btn-close-timesheet').addEventListener('click', () => d
 document.getElementById('btn-ts-week-prev').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, -7); renderTimesheet(); });
 document.getElementById('btn-ts-week-next').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, 7); renderTimesheet(); });
 
-// ===================== Absences (remplace le formulaire Monday) =====================
+// ===================== Absences (remplace le formulaire l’ancien système) =====================
 async function openAbsences() {
   document.getElementById('absence-panel').classList.remove('hidden');
   await loadAbsences();
@@ -1744,5 +1744,6 @@ boot();
 <div style="text-align:center;font-size:11px;color:#8892a6;padding:8px 0 16px;">
   <a href="politique-confidentialite.html" style="color:inherit;">Politique de confidentialité</a>
 </div>
+<script>(function(){var l=document.getElementById('header-logo');if(!l||l.dataset.home)return;l.dataset.home='1';l.style.cursor='pointer';l.title='Retour à l’accueil Exacto';l.addEventListener('click',function(){location.href='/';});})();</script>
 </body>
 </html>

@@ -1,9 +1,9 @@
 // api/_lib/planif-db.js
 //
-// Données de Planif hébergées dans Neon (remplace les boards Monday « Planification chantier », fériés, réglages,
+// Données de Planif hébergées dans Neon (remplace les tableau « Planification chantier », fériés, réglages,
 // distances, équipements, absences, historique des changements et historique des horaires envoyés).
 // Employés et projets proviennent des annuaires Exacto (fin_employee / fin_project — créés par le projet Finance, MÊME base Neon).
-// Les identifiants d'employés et de projets sont ceux de Monday (texte numérique) : rien ne change pour les autres modules.
+// Les identifiants d'employés et de projets sont ceux de l’ancien système (texte numérique) : rien ne change pour les autres modules.
 //
 // Appelé par api/monday.js (corps { planif: '<action>', ... }) — aucune nouvelle fonction Vercel n'est créée.
 

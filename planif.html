@@ -672,7 +672,7 @@ const PROJECT_STAGE_EN_COURS = 'Projet en cours';
 const PROJECT_STAGE_TERMINE = 'Projet terminé';
 const PROJECT_STAGE_ATTENTE = 'Attente de libération';
 const PROJECT_STAGE_PLANIFICATION = 'En planification (Tâches administratives)';
-// Données hébergées dans Neon (voir api/_lib/planif-db.js) — plus aucun board Monday.
+// Données hébergées dans Neon (voir api/_lib/planif-db.js) — plus aucun tableau.
 
 
 
@@ -785,7 +785,7 @@ function showToast(msg, type=true) {
   clearTimeout(showToast._t);
   showToast._t = setTimeout(()=>{ t.style.display='none'; }, type==='warning' ? 6000 : 4000);
 }
-// Empêche deux opérations d'écriture Monday de se chevaucher : toute fonction qui modifie
+// Empêche deux opérations d'écriture l’ancien système de se chevaucher : toute fonction qui modifie
 // des données doit appeler beginOp() en premier et rendre le jeton avec endOp() (via finally),
 // sinon avertir l'utilisateur au lieu de laisser deux requêtes se marcher dessus.
 // beginOp() prend aussi automatiquement un instantané des cases/jours fériés juste avant chaque
@@ -1042,7 +1042,7 @@ function haversineKm(a, b) {
 
 
 
-// Distance réelle (routière, via OSRM) si disponible dans le cache Monday, sinon estimation à vol d'oiseau
+// Distance réelle (routière, via OSRM) si disponible dans le cache l’ancien système, sinon estimation à vol d'oiseau
 function getDistanceInfo(empId, projId) {
   const cached = state.roadDistances[empId];
   if (cached && cached[projId] !== undefined) {
@@ -1216,12 +1216,12 @@ async function toggleHoliday(dateStr, checked) {
     await loadAll();
   } finally { endOp(); }
 }
-// Resynchronise les pastilles de disponibilité (colonnes Lun-Ven) du board Employés Monday.
+// Resynchronise les pastilles de disponibilité (colonnes Lun-Ven) du board Employés l’ancien système.
 // Le statut d'un employé (dayStatus) ne dépend QUE de ses propres absences/affectations — jamais
 // de celles des autres — donc après une opération touchant un ou quelques employés précis, il est
 // inutile (et lent) de réécrire tout le monde. Passer un Set d'ids pour ne cibler qu'eux ; omettre
 // l'argument pour une resynchronisation complète (ex. chargement initial, changement de semaine).
-// Les pastilles de disponibilité (Lun-Ven) n'étaient écrites que pour la vue Monday du board Employés : plus nécessaire,
+// Les pastilles de disponibilité (Lun-Ven) n'étaient écrites que pour la vue l’ancien système du board Employés : plus nécessaire,
 // la grille calcule ces statuts localement (dayStatus). Conservée en no-op pour les appelants existants.
 async function syncAvailabilityPastilles(employeeIds) { return; }
 
@@ -1257,7 +1257,7 @@ async function addAssignmentRaw(projectId, dateStr, employeeId, keepTs) {
 }
 
 // Inverse les rangs 1er/2e chantier d'un employé pour une journée en échangeant les horodatages
-// d'affectation de ses deux cases. Deux écritures Monday (une par case).
+// d'affectation de ses deux cases. Deux écritures l’ancien système (une par case).
 async function swapAssignmentOrder(empId, dateStr) {
   const list = sameDayAssignments(empId, dateStr);
   if (list.length !== 2) return;
@@ -1322,7 +1322,7 @@ async function duplicateWeekToNext() {
 
   setOverlay(true, 'Duplication en cours…');
   try {
-    // Regroupe par case cible (projet+date) pour n'écrire qu'une fois par case Monday — plus
+    // Regroupe par case cible (projet+date) pour n'écrire qu'une fois par case l’ancien système — plus
     // rapide, et évite un conflit si plusieurs employés se dupliquent vers la même case. Les
     // cases (distinctes) sont ensuite écrites en parallèle plutôt qu'une à la fois.
     const byKey = new Map();
@@ -1969,7 +1969,7 @@ function render() {
             const daysToAdd = proceedDouble ? normal.concat(toDoubleBook) : normal;
             if (daysToAdd.length) {
               // Un seul cycle beginOp/render/sync pour toute la semaine (au lieu d'un par jour),
-              // et les jours (des cases Monday distinctes) sont écrits en parallèle — beaucoup
+              // et les jours (des cases l’ancien système distinctes) sont écrits en parallèle — beaucoup
               // plus rapide qu'attendre chaque jour un à un.
               if (!beginOp()) return;
               setOverlay(true, `Ajout de ${empName} en cours…`);
@@ -2023,7 +2023,7 @@ function render() {
               const daysToMove = proceedDouble ? normal.concat(toDoubleBook) : normal;
               if (daysToMove.length) {
                 // Un seul cycle beginOp/render/sync pour toute la semaine, jours en parallèle
-                // (chaque jour touche des cases Monday distinctes — pas de conflit possible).
+                // (chaque jour touche des cases l’ancien système distinctes — pas de conflit possible).
                 if (!beginOp()) return;
                 setOverlay(true, `Déplacement de ${empName} en cours…`);
                 try {
@@ -3714,7 +3714,7 @@ document.getElementById('btn-next').addEventListener('click', () => { state.week
 document.getElementById('btn-today').addEventListener('click', () => { state.weekOffset = 0; render(); if (!state.busy) syncAvailabilityPastilles(); refreshModificationsButtonState(); });
 document.getElementById('btn-duplicate').addEventListener('click', duplicateWeekToNext);
 
-// ----- Absences (Neon) : remplace les demandes d'absence « Traitée / Acceptée » du board Monday RH -----
+// ----- Absences (Neon) : remplace les demandes d'absence « Traitée / Acceptée » du tableau RH -----
 async function openAbsencesModal() {
   const sel = document.getElementById('abs-emp');
   sel.innerHTML = state.employees.concat(state.inactiveEmployees).map(e => `<option value="${e.id}">${e.name.replace(/</g,'&lt;')}</option>`).join('');
@@ -3894,5 +3894,6 @@ updateThemeToggleIcon();
 // ---------- Bootstrap ----------
 initClerkAuth();
 </script>
+<script>(function(){var l=document.getElementById('header-logo');if(!l||l.dataset.home)return;l.dataset.home='1';l.style.cursor='pointer';l.title='Retour à l’accueil Exacto';l.addEventListener('click',function(){location.href='/';});})();</script>
 </body>
 </html>
