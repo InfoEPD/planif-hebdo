@@ -513,7 +513,13 @@ module.exports = async function handler(req, res) {
   if (resource === 'hours') {
     try {
       const hb = require('./_lib/hours-bank');
-      const out = await hb.handle(meta.role, action, req.body || {}, { email: meta.email || meta.sub || '', employeeId: meta.employeeItemId ? String(meta.employeeItemId) : '' });
+      // Rôle admin / lecture seule déterminé comme pour le reste d'Exacto-Heures (accès aux modules Finance).
+      let hbRole = meta.role;
+      if (hbRole !== 'employee') {
+        const lvl = await require('./_lib/access').level(meta, 'punch_admin');
+        hbRole = lvl === 'full' ? 'admin' : lvl === 'read' ? 'lecture-seule' : 'none';
+      }
+      const out = await hb.handle(hbRole, action, req.body || {}, { email: meta.email || meta.sub || '', employeeId: meta.employeeItemId ? String(meta.employeeItemId) : '' });
       res.status(200).json(out);
     } catch (err) { res.status(err.status || 500).json({ error: err.message || 'Erreur.' }); }
     return;
