@@ -312,7 +312,29 @@ async function handle(role, action, body, ctx) {
   const fn = ADMIN[action];
   if (!fn) fail(400, 'Action inconnue : ' + action);
   if (role === 'lecture-seule' && !ADMIN_READ.has(action)) fail(403, 'Accès en lecture seule : cette action est désactivée pour votre compte.');
-  return await fn(body || {}, ctx || {});
+  const b = body || {};
+  // Portée « chantier » : accès Complet à Admin punch sans être administrateur principal → employés de chantier seulement.
+  if (ctx && ctx.scope === 'chantier') {
+    const rows = await q(`SELECT id::text AS id FROM fin_employee WHERE lower(trim(coalesce(company,''))) = 'epd' AND lower(trim(coalesce(department,''))) = 'chantier'`);
+    const ok = new Set(rows.map(r => r.id));
+    const only = id => { if (!ok.has(String(id))) fail(403, 'Réservé aux employés de chantier.'); };
+    if (['cfgSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
+    if (action === 'tsList') return { sheets: [] };
+    if (action === 'cfgList') return { cfg: {} };
+    if (['paySave', 'txList', 'txAdd'].includes(action)) only(b.employeeId);
+    if (action === 'txDelete') {
+      if (!isId(b.id)) fail(400, 'Transaction invalide.');
+      const t = await q('SELECT employee_id FROM hb_tx WHERE id = $1', [b.id]);
+      if (t[0]) only(t[0].employee_id);
+    }
+    const out = await fn(b, ctx);
+    if (action === 'balances' && out.employees) out.employees = out.employees.filter(e => ok.has(String(e.id)));
+    if (action === 'weekGet') {
+      ['pay', 'balances'].forEach(k => { if (out[k]) Object.keys(out[k]).forEach(id => { if (!ok.has(String(id))) delete out[k][id]; }); });
+    }
+    return out;
+  }
+  return await fn(b, ctx || {});
 }
 
 module.exports = { handle, ensure, BANKS, sundayOf, tsTotals };

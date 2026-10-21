@@ -4235,21 +4235,27 @@ function renderBanques() {
   const rows = list.map(e => `<tr data-id="${e.id}"><td>${escapeHtml(e.name)}${e.timesheet ? ' <span class="badge badge-attente" title="Feuille de temps activée">bureau</span>' : ''}</td>` +
     ['ccq', 'hccq', 'bureau', 'mobile'].map(k => `<td style="${hbCls(e.balances[k])}">${hbFmt(e.balances[k])}</td>`).join('') +
     `<td><button class="btn btn-outline hb-open" data-id="${e.id}">Détail / solde d'ouverture</button></td></tr>`).join('');
-  el.innerHTML = `<table><thead>${head}</thead><tbody>${rows || '<tr><td colspan="6" class="empty-state">Aucun employé.</td></tr>'}</tbody></table><div id="banques-detail" style="margin-top:16px;"></div>`;
+  el.innerHTML = `<table><thead>${head}</thead><tbody>${rows || '<tr><td colspan="6" class="empty-state">Aucun employé.</td></tr>'}</tbody></table>`;
   el.querySelectorAll('.hb-open').forEach(b => b.addEventListener('click', () => openBanqueDetail(b.dataset.id)));
   if (hbSel) openBanqueDetail(hbSel);
 }
 async function openBanqueDetail(empId) {
   hbSel = empId;
-  const box = document.getElementById('banques-detail'); if (!box) return;
   const emp = hbEmployees.find(e => e.id === empId); if (!emp) return;
-  box.innerHTML = '<div class="empty-state">Chargement…</div>';
-  let d; try { d = await hoursApi('txList', { employeeId: empId }); } catch (e) { box.innerHTML = '<div class="empty-state">Erreur : ' + escapeHtml(e.message) + '</div>'; return; }
+  let box = document.getElementById('banques-detail');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'banques-detail';
+    box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:150;display:flex;align-items:center;justify-content:center;padding:16px;';
+    box.addEventListener('mousedown', ev => { if (ev.target === box) { hbSel = null; box.remove(); } });
+    document.body.appendChild(box);
+  }
+  box.innerHTML = '<div style="background:var(--panel);border-radius:10px;padding:24px;">Chargement…</div>';
+  let d; try { d = await hoursApi('txList', { employeeId: empId }); } catch (e) { box.innerHTML = '<div style="background:var(--panel);border-radius:10px;padding:24px;">Erreur : ' + escapeHtml(e.message) + ' <button class="btn btn-outline" onclick="hbSel=null;document.getElementById(\'banques-detail\').remove()">Fermer</button></div>'; return; }
   emp.balances = d.balances;
   const today = new Date().toISOString().slice(0, 10);
   const bankOpts = Object.keys(HB_LABEL).map(k => `<option value="${k}">${HB_LABEL[k]}</option>`).join('');
   const KIND = { opening: "Solde d'ouverture", week: 'Semaine', adjust: 'Ajustement', ts: 'Feuille de temps' };
-  box.innerHTML = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--panel);">
+  box.innerHTML = `<div style="width:min(900px,100%);max-height:90vh;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--panel);box-shadow:0 10px 40px rgba(0,0,0,.35);">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;"><h3 style="margin:0;">${escapeHtml(emp.name)}</h3>${['ccq', 'hccq', 'bureau', 'mobile'].map(k => `<span>${HB_LABEL[k]} : <b style="${hbCls(d.balances[k])}">${hbFmt(d.balances[k])}</b></span>`).join('')}<button class="btn btn-outline" id="hb-close" style="margin-left:auto;">Fermer</button></div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px;">
       <label>Banque<br><select id="hb-bank">${bankOpts}</select></label>
@@ -4260,7 +4266,7 @@ async function openBanqueDetail(empId) {
       <button class="btn btn-primary" id="hb-add">Enregistrer</button></div>
     <table><thead><tr><th>Date</th><th>Banque</th><th>Type</th><th>Heures</th><th>Note</th><th></th></tr></thead><tbody>` +
     (d.transactions.map(t => `<tr><td>${t.day.split('-').reverse().join('/')}</td><td>${HB_LABEL[t.bank] || t.bank}</td><td>${KIND[t.kind] || t.kind}</td><td style="${hbCls(t.hours)}">${hbSigned(t.hours)}</td><td>${escapeHtml(t.note)}</td><td>${(t.kind === 'opening' || t.kind === 'adjust') ? `<button class="btn btn-outline hb-del" data-id="${t.id}">Supprimer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty-state">Aucune transaction.</td></tr>') + '</tbody></table></div>';
-  box.querySelector('#hb-close').addEventListener('click', () => { hbSel = null; box.innerHTML = ''; });
+  box.querySelector('#hb-close').addEventListener('click', () => { hbSel = null; box.remove(); });
   box.querySelector('#hb-add').addEventListener('click', async ev => {
     const hours = box.querySelector('#hb-hours').value;
     if (hours === '') { showToast('Indiquez un nombre d\'heures.'); return; }

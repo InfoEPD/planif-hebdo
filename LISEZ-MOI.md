@@ -27,3 +27,6 @@ Aucune nouvelle fonction Serverless (limite de 12 respectée). SMTP_USER / SMTP_
 2. Remplacer `api/_lib/planif-db.js` et `planif.html`.
 3. Dans Planif, bouton « Équipements » : réaffecter, + Ajouter, modifier (✏️), retirer (🗑️). Un équipement vendu se marque « Vendu » (conservé, grisé).
 Rien n'a été supprimé dans Monday. Rien n'a été testé en direct.
+
+## Portée des banques de temps
+Remplacer aussi `api/_lib/access.js`. Administrateur principal (courriel dans les courriels administrateurs de Finance ou FINANCE_ADMIN_EMAILS) : voit et ajuste tout. Autres accès « Complet » à Admin punch : banques, soldes, heures payées et ajustements des employés de chantier seulement; pas de feuilles de temps ni de configuration bureau. Lecture seule : inchangé.

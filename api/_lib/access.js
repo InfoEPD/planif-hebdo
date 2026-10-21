@@ -53,4 +53,16 @@ async function level(claims, module) {
   cache.set(key, { at: Date.now(), v });
   return v;
 }
-module.exports = { level, emailOf };
+
+/** Administrateur principal : courriel dans FINANCE_ADMIN_EMAILS ou dans fin_settings.admin_emails (voit tout, y compris les employés de bureau). */
+async function isSuper(claims) {
+  const email = await emailOf(claims || {});
+  if (!email) return false;
+  let admins = String(process.env.FINANCE_ADMIN_EMAILS || '').toLowerCase().split(/[\s,;]+/).filter(Boolean);
+  try {
+    const s = await q("SELECT value FROM fin_settings WHERE key = 'admin_emails'");
+    s.forEach(r => { admins = admins.concat(String(r.value || '').toLowerCase().split(/[\s,;]+/).filter(Boolean)); });
+  } catch (e) { /* table absente */ }
+  return admins.includes(email);
+}
+module.exports = { level, emailOf, isSuper };

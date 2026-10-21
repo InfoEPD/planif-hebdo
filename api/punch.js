@@ -514,12 +514,15 @@ module.exports = async function handler(req, res) {
     try {
       const hb = require('./_lib/hours-bank');
       // Rôle admin / lecture seule déterminé comme pour le reste d'Exacto-Heures (accès aux modules Finance).
-      let hbRole = meta.role;
+      let hbRole = meta.role, hbScope = 'all';
       if (hbRole !== 'employee') {
-        const lvl = await require('./_lib/access').level(meta, 'punch_admin');
+        const acc = require('./_lib/access');
+        const lvl = await acc.level(meta, 'punch_admin');
         hbRole = lvl === 'full' ? 'admin' : lvl === 'read' ? 'lecture-seule' : 'none';
+        // Administrateur principal : tout. Autre accès Complet : employés de chantier seulement.
+        if (lvl === 'full' && !(await acc.isSuper(meta))) hbScope = 'chantier';
       }
-      const out = await hb.handle(hbRole, action, req.body || {}, { email: meta.email || meta.sub || '', employeeId: meta.employeeItemId ? String(meta.employeeItemId) : '' });
+      const out = await hb.handle(hbRole, action, req.body || {}, { scope: hbScope, email: meta.email || meta.sub || '', employeeId: meta.employeeItemId ? String(meta.employeeItemId) : '' });
       res.status(200).json(out);
     } catch (err) { res.status(err.status || 500).json({ error: err.message || 'Erreur.' }); }
     return;
