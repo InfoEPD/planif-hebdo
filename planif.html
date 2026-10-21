@@ -3754,49 +3754,93 @@ document.getElementById('btn-send-schedule').addEventListener('click', sendSched
 document.getElementById('btn-send-changes').addEventListener('click', sendScheduleChanges);
 document.getElementById('btn-send-draft').addEventListener('click', openSendDraftModal);
 document.getElementById('btn-config').addEventListener('click', openConfigModal);
-/* ---------- Équipements (camions / levage) : réaffectation entre contremaîtres ---------- */
+/* ---------- Équipements (camions / levage) : réaffectation, ajout, modification, retrait ---------- */
+const eqEsc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 async function openEquipModal() {
+  document.querySelectorAll('#equip-modal').forEach(x => x.remove());
   let list;
   try { list = (await planifApi('equipList')).equipment; } catch (e) { showToast(e.message, 'warning'); return; }
-  const ro = false; // le rôle lecture seule est appliqué côté serveur (message d'erreur affiché)
-  const escapeHtml = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   const emps = (state.employees || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const leads = emps.filter(e => isLeadTitre(e.titre)), others = emps.filter(e => !isLeadTitre(e.titre));
-  const opt = e => '<option value="' + e.id + '">' + escapeHtml(e.name) + '</option>';
+  const opt = e => '<option value="' + e.id + '">' + eqEsc(e.name) + '</option>';
+  const empOptions = '<option value="">— Aucun —</option><optgroup label="Contremaîtres">' + leads.map(opt).join('') + '</optgroup><optgroup label="Autres employés">' + others.map(opt).join('') + '</optgroup>';
   const nameOf = id => { const e = emps.find(x => x.id === id); return e ? e.name : '(employé inconnu)'; };
   const wrap = document.createElement('div'); wrap.id = 'equip-modal';
-  const row = e => {
-    const label = e.kind === 'rolling' ? (e.name || 'Camion') : ([e.brand, e.model].filter(Boolean).join(' ') + (e.year ? ' (' + e.year + ')' : '') || e.name || 'Appareil de levage');
-    const cur = e.employeeIds[0] || '';
-    return '<tr data-id="' + e.id + '" style="' + (e.active ? '' : 'opacity:.55') + '"><td style="padding:5px 8px">' + (e.kind === 'rolling' ? '🚚' : '🏗️') + ' ' + escapeHtml(label) + (e.active ? '' : ' <small>(inactif)</small>') + '</td><td style="padding:5px 8px">' +
-      '<select ' + (ro ? 'disabled' : '') + ' data-cur="' + cur + '"><option value="">— Aucun —</option><optgroup label="Contremaîtres">' + leads.map(opt).join('') + '</optgroup><optgroup label="Autres employés">' + others.map(opt).join('') + '</optgroup></select>' +
-      (e.employeeIds.length > 1 ? '<div style="font-size:11px;color:var(--text-secondary)">Actuellement : ' + e.employeeIds.map(nameOf).map(escapeHtml).join(', ') + ' — enregistrer garde un seul choix</div>' : '') + '</td></tr>';
-  };
-  const sec = (title, arr) => arr.length ? '<h4 style="margin:12px 0 4px">' + title + '</h4><table style="width:100%;border-collapse:collapse">' + arr.map(row).join('') + '</table>' : '';
-  wrap.className = 'overlay-equip';
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
-  wrap.innerHTML = '<div class="suggest-box" style="max-width:640px;width:100%;max-height:88vh;overflow:auto"><div class="suggest-header"><h3>🚚 Équipements</h3><button id="equip-close">✕</button></div>' +
-    '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 6px">Choisissez le contremaître (ou l\'employé) à qui chaque camion ou appareil est attribué. Le badge apparaît sur sa carte les jours où il est planifié.</p>' +
+  const labelOf = e => e.kind === 'rolling' ? (e.name || 'Camion') : (e.name || ([e.brand, e.model].filter(Boolean).join(' ') + (e.year ? ' (' + e.year + ')' : '')) || 'Appareil de levage');
+  const row = e => {
+    const cur = e.employeeIds[0] || '', sold = e.status === 'vendu';
+    const sub = [e.kind === 'rolling' ? e.department : '', e.ownership, e.serial].filter(Boolean).join(' · ');
+    return '<tr data-id="' + e.id + '" style="border-top:1px solid var(--border);' + (sold ? 'opacity:.55' : '') + '"><td style="padding:5px 8px">' + (e.kind === 'rolling' ? '🚚' : '🏗️') + ' ' + eqEsc(labelOf(e)) + (sold ? ' <small>(vendu)</small>' : '') + (sub ? '<div style="font-size:11px;color:var(--text-secondary)">' + eqEsc(sub) + '</div>' : '') + '</td><td style="padding:5px 8px">' +
+      '<select class="eq-sel" data-cur="' + cur + '">' + empOptions + '</select>' +
+      (e.employeeIds.length > 1 ? '<div style="font-size:11px;color:var(--text-secondary)">Actuellement : ' + e.employeeIds.map(nameOf).map(eqEsc).join(', ') + ' — enregistrer garde un seul choix</div>' : '') +
+      '</td><td style="padding:5px 8px;white-space:nowrap"><button class="eq-edit" title="Modifier">✏️</button> <button class="eq-del" title="Retirer de la liste" style="color:var(--danger)">🗑️</button></td></tr>';
+  };
+  const sec = (title, arr) => arr.length ? '<h4 style="margin:12px 0 4px">' + title + ' (' + arr.length + ')</h4><table style="width:100%;border-collapse:collapse">' + arr.map(row).join('') + '</table>' : '';
+  wrap.innerHTML = '<div class="suggest-box" style="max-width:720px;width:100%;max-height:88vh;overflow:auto"><div class="suggest-header"><h3>🚚 Équipements</h3><button id="equip-close">✕</button></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;margin:0 0 6px"><p style="font-size:12px;color:var(--text-secondary);margin:0;flex:1">Attribuez chaque camion ou appareil à un contremaître (ou à un autre employé). Le badge apparaît sur sa carte les jours où il est planifié.</p><button id="equip-add" class="primary">+ Ajouter</button></div>' +
     sec('Camions', list.filter(e => e.kind === 'rolling')) + sec('Équipements de levage', list.filter(e => e.kind !== 'rolling')) +
     (list.length ? '' : '<p>Aucun équipement enregistré.</p>') + '<div class="confirm-actions" style="justify-content:flex-end;margin-top:14px"><button id="equip-cancel">Fermer</button></div></div>';
   document.body.appendChild(wrap);
-  wrap.querySelectorAll('select').forEach(sel => {
+  const close = () => wrap.remove();
+  const refreshPlanif = async () => {
+    _planifData = null; const d = await getPlanifData();
+    state.equipmentByEmployee = d.equipmentByEmployee; state.liftByEmployee = d.liftByEmployee; state.liftMarquesByEmployee = d.liftMarquesByEmployee; render();
+  };
+  wrap.querySelectorAll('.eq-sel').forEach(sel => {
     sel.value = sel.dataset.cur;
     sel.addEventListener('change', async () => {
-      const id = sel.closest('tr').dataset.id, prev = sel.dataset.cur;
-      sel.disabled = true;
-      try {
-        await planifApi('equipAssign', { id, employeeIds: sel.value ? [sel.value] : [] });
-        sel.dataset.cur = sel.value; _planifData = null;
-        const d = await getPlanifData();
-        state.equipmentByEmployee = d.equipmentByEmployee; state.liftByEmployee = d.liftByEmployee; state.liftMarquesByEmployee = d.liftMarquesByEmployee;
-        render(); showToast('Équipement réaffecté.', false);
-      } catch (e) { sel.value = prev; showToast(e.message, 'warning'); }
-      sel.disabled = ro;
+      const id = sel.closest('tr').dataset.id, prev = sel.dataset.cur; sel.disabled = true;
+      try { await planifApi('equipAssign', { id, employeeIds: sel.value ? [sel.value] : [] }); sel.dataset.cur = sel.value; await refreshPlanif(); showToast('Équipement réaffecté.', false); }
+      catch (e) { sel.value = prev; showToast(e.message, 'warning'); }
+      sel.disabled = false;
     });
   });
-  const close = () => wrap.remove();
+  wrap.querySelectorAll('.eq-edit').forEach(b => b.addEventListener('click', () => equipForm(list.find(x => x.id === b.closest('tr').dataset.id))));
+  wrap.querySelectorAll('.eq-del').forEach(b => b.addEventListener('click', async () => {
+    const e = list.find(x => x.id === b.closest('tr').dataset.id);
+    if (!confirm('Retirer « ' + labelOf(e) + ' » de la liste ?\nSi l\'appareil est seulement vendu, modifiez-le plutôt et mettez le statut « Vendu ».')) return;
+    try { await planifApi('equipDelete', { id: e.id }); await refreshPlanif(); showToast('Équipement retiré.', false); openEquipModal(); } catch (err) { showToast(err.message, 'warning'); }
+  }));
+  wrap.querySelector('#equip-add').addEventListener('click', () => equipForm(null));
   wrap.querySelector('#equip-close').onclick = close; wrap.querySelector('#equip-cancel').onclick = close;
+
+  function equipForm(e) {
+    const isNew = !e; e = e || { kind: 'rolling', status: 'actif', employeeIds: [] };
+    const f = document.createElement('div');
+    f.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9100;display:flex;align-items:center;justify-content:center;padding:16px';
+    const inp = (id, label, v, type) => '<label style="display:block;font-size:12px">' + label + '<br><input id="eqf-' + id + '" type="' + (type || 'text') + '" value="' + eqEsc(v) + '" style="width:100%"></label>';
+    f.innerHTML = '<div class="suggest-box" style="max-width:560px;width:100%;max-height:90vh;overflow:auto"><div class="suggest-header"><h3>' + (isNew ? 'Ajouter un équipement' : 'Modifier l\'équipement') + '</h3><button id="eqf-x">✕</button></div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      '<label style="font-size:12px">Type<br><select id="eqf-kind" style="width:100%"' + (isNew ? '' : ' disabled') + '><option value="rolling">🚚 Camion / véhicule</option><option value="lift">🏗️ Appareil de levage</option></select></label>' +
+      '<label style="font-size:12px">Statut<br><select id="eqf-status" style="width:100%"><option value="actif">Actif</option><option value="vendu">Vendu</option></select></label>' +
+      '<div style="grid-column:span 2">' + inp('name', 'Nom (ex. FORD TRANSIT F SIROIS)', e.name) + '</div>' +
+      inp('brand', 'Marque', e.brand) + inp('model', 'Modèle', e.model) + inp('year', 'Année', e.year) + inp('serial', 'NIV / n° de série', e.serial) +
+      '<div class="eq-rolling">' + '<label style="display:block;font-size:12px">Département<br><select id="eqf-department" style="width:100%"><option value="">—</option><option>Chantier</option><option>Bureau</option><option>Shop</option></select></label></div>' +
+      '<div class="eq-rolling"><label style="display:block;font-size:12px">Propriété<br><select id="eqf-ownership" style="width:100%"><option value="">—</option><option>Acheté</option><option>Acheté tout payé</option><option>Loué</option></select></label></div>' +
+      '<div class="eq-rolling">' + inp('endDate', 'Fin d\'entente (location)', e.endDate, 'date') + '</div><div class="eq-rolling">' + inp('km', 'Kilométrage', e.km, 'number') + '</div>' +
+      '<div class="eq-lift">' + inp('purchaseDate', 'Date d\'achat', e.purchaseDate, 'date') + '</div><div class="eq-lift">' + inp('hoursAtPurchase', 'Heures à l\'achat', e.hoursAtPurchase, 'number') + '</div>' +
+      '<label style="grid-column:span 2;font-size:12px">Attribué à<br><select id="eqf-emp" style="width:100%">' + empOptions + '</select></label>' +
+      '<div style="grid-column:span 2">' + inp('notes', 'Notes', e.notes) + '</div></div>' +
+      '<div class="confirm-actions" style="justify-content:flex-end;margin-top:14px"><button id="eqf-cancel">Annuler</button><button id="eqf-save" class="primary">Enregistrer</button></div></div>';
+    document.body.appendChild(f);
+    const g = id => f.querySelector('#eqf-' + id);
+    g('kind').value = e.kind; g('status').value = e.status === 'vendu' ? 'vendu' : 'actif'; g('emp').value = e.employeeIds[0] || '';
+    if (e.department) g('department').value = e.department; if (e.ownership) g('ownership').value = e.ownership;
+    const toggle = () => { const r = g('kind').value === 'rolling'; f.querySelectorAll('.eq-rolling').forEach(x => x.style.display = r ? '' : 'none'); f.querySelectorAll('.eq-lift').forEach(x => x.style.display = r ? 'none' : ''); };
+    g('kind').addEventListener('change', toggle); toggle();
+    const end = () => f.remove();
+    g('x').onclick = end; g('cancel').onclick = end;
+    g('save').onclick = async () => {
+      const body = { id: isNew ? '' : e.id, kind: g('kind').value, status: g('status').value, name: g('name').value, brand: g('brand').value, model: g('model').value, year: g('year').value, serial: g('serial').value,
+        department: g('department').value, ownership: g('ownership').value, endDate: g('endDate').value, km: g('km').value, purchaseDate: g('purchaseDate').value, hoursAtPurchase: g('hoursAtPurchase').value, employeeId: g('emp').value, notes: g('notes').value };
+      if (body.kind === 'lift') { body.department = ''; body.ownership = ''; body.endDate = ''; body.km = ''; } else { body.purchaseDate = ''; body.hoursAtPurchase = ''; }
+      if (!body.name.trim()) { showToast('Le nom est obligatoire.', 'warning'); return; }
+      g('save').disabled = true;
+      try { await planifApi('equipSave', body); end(); await refreshPlanif(); showToast(isNew ? 'Équipement ajouté.' : 'Équipement modifié.', false); openEquipModal(); }
+      catch (err) { showToast(err.message, 'warning'); g('save').disabled = false; }
+    };
+  }
 }
 document.getElementById('btn-equip').addEventListener('click', openEquipModal);
 

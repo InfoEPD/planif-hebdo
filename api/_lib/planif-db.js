@@ -191,9 +191,21 @@ async function settingsSave(b) {
   for (const [k, v] of rows) await q('INSERT INTO planif_setting (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [k, v]);
   return { ok: true };
 }
+const EQ_COLS = `id, kind, name, active, status, brand, model, year, serial, department, ownership, to_char(end_date,'YYYY-MM-DD') AS end_date, km::float AS km, to_char(purchase_date,'YYYY-MM-DD') AS purchase_date, hours_at_purchase::float AS hours_at_purchase, notes, employee_ids`;
+const eqOut = e => ({ id: String(e.id), kind: e.kind === 'rolling' ? 'rolling' : 'lift', name: e.name || '', active: !!e.active, status: e.status || (e.active ? 'actif' : 'inactif'), brand: e.brand || '', model: e.model || '', year: e.year || '',
+  serial: e.serial || '', department: e.department || '', ownership: e.ownership || '', endDate: e.end_date || '', km: e.km == null ? '' : e.km, purchaseDate: e.purchase_date || '', hoursAtPurchase: e.hours_at_purchase == null ? '' : e.hours_at_purchase, notes: e.notes || '', employeeIds: (e.employee_ids || []).map(String) });
+let eqReady = null;
+function ensureEq() {
+  if (!eqReady) eqReady = (async () => {
+    for (const c of ['serial TEXT', 'department TEXT', 'ownership TEXT', 'end_date DATE', 'km NUMERIC', 'purchase_date DATE', 'hours_at_purchase NUMERIC', "status TEXT NOT NULL DEFAULT 'actif'", 'notes TEXT'])
+      await q('ALTER TABLE planif_equipment ADD COLUMN IF NOT EXISTS ' + c);
+  })().catch(e => { eqReady = null; throw e; });
+  return eqReady;
+}
 async function equipList() {
-  const rows = await q(`SELECT id, kind, name, active, brand, model, year, employee_ids FROM planif_equipment ORDER BY kind, active DESC, name`);
-  return { equipment: rows.map(e => ({ id: String(e.id), kind: e.kind === 'rolling' ? 'rolling' : 'lift', name: e.name || '', active: !!e.active, brand: e.brand || '', model: e.model || '', year: e.year || '', employeeIds: (e.employee_ids || []).map(String) })) };
+  await ensureEq();
+  const rows = await q(`SELECT ${EQ_COLS} FROM planif_equipment ORDER BY kind, active DESC, name`);
+  return { equipment: rows.map(eqOut) };
 }
 async function equipAssign(b, ctx) {
   if (!isId(b.id)) fail(400, 'Équipement invalide.');
@@ -202,6 +214,37 @@ async function equipAssign(b, ctx) {
   const r = await q('UPDATE planif_equipment SET employee_ids = $2::text[] WHERE id = $1 RETURNING id', [b.id, ids]);
   if (!r.length) fail(404, 'Équipement introuvable.');
   console.log('Équipement', b.id, 'réaffecté à', ids.join(',') || '(personne)', 'par', ctx && ctx.email);
+  return { ok: true };
+}
+/** Ajoute (sans id) ou modifie (avec id) un camion / appareil de levage. */
+async function equipSave(b, ctx) {
+  await ensureEq();
+  const kind = b.kind === 'rolling' ? 'rolling' : (b.kind === 'lift' ? 'lift' : '');
+  if (!kind) fail(400, "Choisissez le type (camion ou appareil de levage).");
+  const t = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
+  const name = t(b.name, 200); if (!name) fail(400, 'Le nom est obligatoire.');
+  const status = b.status === 'vendu' ? 'vendu' : 'actif';
+  const day = v => (isDay(v) ? v : null);
+  const nm = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/\s/g, '').replace(',', '.')); if (!isFinite(n)) fail(400, 'Nombre invalide.'); return n; };
+  const emp = b.employeeId ? String(b.employeeId) : '';
+  if (emp && !isId(emp)) fail(400, 'Employé invalide.');
+  const ids = emp ? [emp] : (Array.isArray(b.employeeIds) ? b.employeeIds.map(String).filter(isId) : []);
+  const vals = [kind, name, status === 'actif', t(b.brand, 100), t(b.model, 100), t(b.year, 10), ids, t(b.serial, 60), t(b.department, 30), t(b.ownership, 40), day(b.endDate), nm(b.km), day(b.purchaseDate), nm(b.hoursAtPurchase), status, t(b.notes, 500)];
+  if (b.id) {
+    if (!isId(b.id)) fail(400, 'Équipement invalide.');
+    const r = await q(`UPDATE planif_equipment SET kind=$2, name=$3, active=$4, brand=$5, model=$6, year=$7, employee_ids=$8::text[], serial=$9, department=$10, ownership=$11, end_date=$12, km=$13, purchase_date=$14, hours_at_purchase=$15, status=$16, notes=$17 WHERE id=$1 RETURNING id`, [b.id].concat(vals));
+    if (!r.length) fail(404, 'Équipement introuvable.');
+    return { id: String(r[0].id) };
+  }
+  const r = await q(`INSERT INTO planif_equipment (kind, name, active, brand, model, year, employee_ids, serial, department, ownership, end_date, km, purchase_date, hours_at_purchase, status, notes) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`, vals);
+  console.log('Équipement ajouté', r[0].id, name, 'par', ctx && ctx.email);
+  return { id: String(r[0].id) };
+}
+async function equipDelete(b, ctx) {
+  if (!isId(b.id)) fail(400, 'Équipement invalide.');
+  const r = await q('DELETE FROM planif_equipment WHERE id = $1 RETURNING name', [b.id]);
+  if (!r.length) fail(404, 'Équipement introuvable.');
+  console.log('Équipement retiré', b.id, r[0].name, 'par', ctx && ctx.email);
   return { ok: true };
 }
 async function absenceSave(b, ctx) {
@@ -305,7 +348,7 @@ async function allDistancesAction() { return { map: await allDistances() }; }
 const ab = () => require('./absence-db');
 const READ = new Set(['equipList', 'absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
 const ACTIONS = { planToday, allDistances: allDistancesAction, load, cellCreate, cellUpdate, cellAssignedAt, cellDelete, projectWeekSet, projectLabor, projectHours, holidaySet, settingsSave, absenceSave, absenceList, absenceDelete,
-  equipList, equipAssign, historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
+  equipList, equipAssign, equipSave, equipDelete, historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
   absReqList: b => ab().adminList(b), absReqCreate: (b, c) => ab().adminCreate(b, c), absReqDecide: (b, c) => ab().adminDecide(b, c), absReqDelete: b => ab().adminDelete(b),
   absStats: b => ab().adminStats(b), absSettingsGet: () => ab().settingsGet(), absSettingsSave: b => ab().settingsSave(b) };
 
