@@ -191,6 +191,19 @@ async function settingsSave(b) {
   for (const [k, v] of rows) await q('INSERT INTO planif_setting (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [k, v]);
   return { ok: true };
 }
+async function equipList() {
+  const rows = await q(`SELECT id, kind, name, active, brand, model, year, employee_ids FROM planif_equipment ORDER BY kind, active DESC, name`);
+  return { equipment: rows.map(e => ({ id: String(e.id), kind: e.kind === 'rolling' ? 'rolling' : 'lift', name: e.name || '', active: !!e.active, brand: e.brand || '', model: e.model || '', year: e.year || '', employeeIds: (e.employee_ids || []).map(String) })) };
+}
+async function equipAssign(b, ctx) {
+  if (!isId(b.id)) fail(400, 'Équipement invalide.');
+  const ids = (Array.isArray(b.employeeIds) ? b.employeeIds : []).map(String);
+  if (ids.some(x => !isId(x))) fail(400, 'Employé invalide.');
+  const r = await q('UPDATE planif_equipment SET employee_ids = $2::text[] WHERE id = $1 RETURNING id', [b.id, ids]);
+  if (!r.length) fail(404, 'Équipement introuvable.');
+  console.log('Équipement', b.id, 'réaffecté à', ids.join(',') || '(personne)', 'par', ctx && ctx.email);
+  return { ok: true };
+}
 async function absenceSave(b, ctx) {
   if (!isId(b.employeeId) || !isDay(b.start) || !isDay(b.end) || b.end < b.start) fail(400, 'Absence invalide (employé, dates).');
   const r = await q('INSERT INTO planif_absence (employee_id, start_day, end_day, note, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
@@ -290,9 +303,9 @@ async function planToday(b) {
 async function allDistancesAction() { return { map: await allDistances() }; }
 
 const ab = () => require('./absence-db');
-const READ = new Set(['absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
+const READ = new Set(['equipList', 'absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
 const ACTIONS = { planToday, allDistances: allDistancesAction, load, cellCreate, cellUpdate, cellAssignedAt, cellDelete, projectWeekSet, projectLabor, projectHours, holidaySet, settingsSave, absenceSave, absenceList, absenceDelete,
-  historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
+  equipList, equipAssign, historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
   absReqList: b => ab().adminList(b), absReqCreate: (b, c) => ab().adminCreate(b, c), absReqDecide: (b, c) => ab().adminDecide(b, c), absReqDelete: b => ab().adminDelete(b),
   absStats: b => ab().adminStats(b), absSettingsGet: () => ab().settingsGet(), absSettingsSave: b => ab().settingsSave(b) };
 

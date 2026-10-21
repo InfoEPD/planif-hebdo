@@ -508,6 +508,17 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // ───────── Banques de temps et feuilles de temps (api/_lib/hours-bank.js) : admin / lecture seule
+  // (Exacto-Heures) ET employé (ses propres données seulement — voir hours-bank.js).
+  if (resource === 'hours') {
+    try {
+      const hb = require('./_lib/hours-bank');
+      const out = await hb.handle(meta.role, action, req.body || {}, { email: meta.email || meta.sub || '', employeeId: meta.employeeItemId ? String(meta.employeeItemId) : '' });
+      res.status(200).json(out);
+    } catch (err) { res.status(err.status || 500).json({ error: err.message || 'Erreur.' }); }
+    return;
+  }
+
   if (meta.role !== 'employee' || !meta.employeeItemId) {
     res.status(403).json({ error: "Ce compte n'a pas accès à l'interface de poinçon." });
     return;

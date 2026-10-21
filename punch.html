@@ -124,6 +124,8 @@
     <button class="btn-secondary" id="btn-open-schedule" style="flex:1;margin-top:0;">📅 Ma planification</button>
     <button class="btn-secondary" id="btn-open-messages" style="flex:1;margin-top:0;position:relative;">💬 Mes messages<span id="messages-unread-badge" class="unread-badge hidden">0</span></button>
     <button class="btn-secondary" id="btn-open-absences" style="flex:1;margin-top:0;">🗓️ Absences</button>
+    <button class="btn-secondary" id="btn-open-banks" style="flex:1;margin-top:0;">🏦 Mes banques</button>
+    <button class="btn-secondary hidden" id="btn-open-timesheet" style="flex:1;margin-top:0;">📝 Feuille de temps</button>
     <button class="btn-secondary hidden" id="btn-open-approval" style="flex:1;margin-top:0;">✅ Approbation</button>
     <button class="btn-secondary" id="btn-open-mydata" style="flex:1;margin-top:0;">🔒 Mes données</button>
   </div>
@@ -234,6 +236,27 @@
       <button class="btn-main" id="btn-messages-reply-send" style="width:auto;margin-top:0;padding:10px 16px;">Envoyer</button>
     </div>
     <button class="btn-secondary" id="btn-close-messages">Fermer</button>
+  </div>
+</div>
+
+<div id="banks-panel" class="msg-panel hidden">
+  <div class="sheet" style="max-height:88vh;overflow-y:auto;">
+    <h3>Mes banques de temps</h3>
+    <div id="banks-content"><div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div></div>
+    <button class="btn-secondary" id="btn-close-banks">Fermer</button>
+  </div>
+</div>
+
+<div id="timesheet-panel" class="msg-panel hidden">
+  <div class="sheet" style="max-height:92vh;overflow-y:auto;">
+    <h3>Feuille de temps</h3>
+    <div class="week-nav">
+      <button id="btn-ts-week-prev">‹</button>
+      <span id="ts-week-label"></span>
+      <button id="btn-ts-week-next">›</button>
+    </div>
+    <div id="timesheet-content"><div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div></div>
+    <button class="btn-secondary" id="btn-close-timesheet">Fermer</button>
   </div>
 </div>
 
@@ -671,6 +694,7 @@ async function refreshTodayData() {
     state.gpsConsentAt = consentData.gpsConsentAt || null;
   } catch (err) { state.gpsConsentAt = null; }
   maybeShowGpsConsent();
+  initHoursButtons();
 }
 
 // ===================== Détection : poinçon terminé par l'admin pendant que l'app est ouverte =====================
@@ -1332,6 +1356,108 @@ document.getElementById('btn-open-schedule').addEventListener('click', openSched
 document.getElementById('btn-close-schedule').addEventListener('click', () => document.getElementById('schedule-panel').classList.add('hidden'));
 document.getElementById('btn-open-messages').addEventListener('click', openMessages);
 document.getElementById('btn-close-messages').addEventListener('click', () => document.getElementById('messages-panel').classList.add('hidden'));
+
+// ===================== Banques de temps et feuille de temps (api/punch.js, resource 'hours') =====================
+const hoursCall = (action, body) => apiCall('/api/punch', Object.assign({ resource: 'hours', action }, body || {}));
+const hFmt = n => (Number(n) || 0).toFixed(2).replace('.', ',') + ' h';
+const hSigned = n => ((Number(n) || 0) > 0 ? '+' : '') + hFmt(n);
+const hColor = n => (Number(n) || 0) < -0.004 ? '#b91c1c' : ((Number(n) || 0) > 0.004 ? '#15803d' : '#555');
+const fmtDayFr = d => { const p = String(d).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
+const DOW_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+
+async function initHoursButtons() {
+  try {
+    const o = await hoursCall('myOverview');
+    state.hoursOverview = o;
+    document.getElementById('btn-open-timesheet').classList.toggle('hidden', !o.timesheet);
+  } catch (e) { /* module non disponible : les boutons restent masqués/inertes */ }
+}
+async function openBanks() {
+  document.getElementById('banks-panel').classList.remove('hidden');
+  const box = document.getElementById('banks-content');
+  box.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div>';
+  try {
+    const o = await hoursCall('myOverview'); state.hoursOverview = o;
+    const show = o.timesheet ? ['bureau', 'mobile'] : ['ccq', 'hccq'];
+    const cards = show.map(k => '<div style="flex:1;min-width:130px;border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center;"><div style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(o.labels[k]) + '</div><div style="font-size:24px;font-weight:800;color:' + hColor(o.balances[k]) + ';">' + hFmt(o.balances[k]) + '</div></div>').join('');
+    const tx = o.transactions.filter(t => show.includes(t.bank));
+    box.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">' + cards + '</div>' +
+      '<div style="font-weight:700;margin:8px 0 6px;">Transactions</div>' +
+      (tx.length ? tx.map(t => '<div style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:6px;font-size:13px;"><div style="display:flex;justify-content:space-between;gap:8px;"><b>' + fmtDayFr(t.day) + ' · ' + escapeHtml(o.labels[t.bank] || t.bank) + '</b><span style="font-weight:800;color:' + hColor(t.hours) + ';">' + hSigned(t.hours) + '</span></div><div style="color:var(--text-secondary);">' + escapeHtml(o.kinds[t.kind] || t.kind) + (t.note ? ' — ' + escapeHtml(t.note) : '') + '</div></div>').join('')
+        : '<div style="color:var(--text-secondary);font-size:13px;">Aucune transaction.</div>');
+  } catch (e) { box.innerHTML = '<div style="color:var(--danger);font-size:13px;">' + escapeHtml(e.message) + '</div>'; }
+}
+
+state.tsWeek = mondayOfWeek(new Date());
+async function openTimesheet() {
+  document.getElementById('timesheet-panel').classList.remove('hidden');
+  await renderTimesheet();
+}
+async function renderTimesheet() {
+  document.getElementById('ts-week-label').textContent = fmtWeekLabel(state.tsWeek);
+  const box = document.getElementById('timesheet-content');
+  box.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Chargement…</div>';
+  let d;
+  try { d = await hoursCall('tsGet', { weekStart: addDaysToWeekKey(state.tsWeek, -1) }); }
+  catch (e) { box.innerHTML = '<div style="color:var(--danger);font-size:13px;">' + escapeHtml(e.message) + '</div>'; return; }
+  const sh = d.sheet, locked = sh.status === 'soumise';
+  const days = Object.keys(sh.days).sort();
+  const inp = (cls, v, dis) => '<input type="number" class="' + cls + '" inputmode="decimal" step="0.25" min="0" max="24" value="' + (v ? Number(v) : '') + '" placeholder="0" style="width:100%;" ' + (dis ? 'disabled' : '') + '>';
+  box.innerHTML =
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;"><div style="flex:1;min-width:130px;border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center;"><div style="font-size:12px;color:var(--text-secondary);">Banque de temps</div><div style="font-size:20px;font-weight:800;color:' + hColor(d.balances.bureau) + ';">' + hFmt(d.balances.bureau) + '</div></div>' +
+    '<div style="flex:1;min-width:130px;border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center;"><div style="font-size:12px;color:var(--text-secondary);">Heures mobiles disponibles</div><div style="font-size:20px;font-weight:800;color:' + hColor(d.balances.mobile) + ';" id="ts-mobile-bal" data-bal="' + d.balances.mobile + '">' + hFmt(d.balances.mobile) + '</div></div></div>' +
+    (locked ? '<div style="background:#e8f5ee;color:#15803d;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:10px;">✔ Feuille soumise' + (sh.submittedAt ? ' le ' + new Date(sh.submittedAt).toLocaleString('fr-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '') + (d.approverName ? ' à ' + escapeHtml(d.approverName) : '') + '. Pour la corriger, demandez sa réouverture à un administrateur.</div>' : '') +
+    (!locked && d.approverMissing ? '<div style="background:#fff1d9;color:#7a4a00;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:10px;">Aucun responsable n\'est désigné pour recevoir votre feuille : vous pouvez l\'enregistrer, mais pas la soumettre. Contactez un administrateur.</div>' : '') +
+    days.map((day, i) => { const x = sh.days[day];
+      return '<div class="ts-day" data-day="' + day + '" style="border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;' + (i === 0 || i === 6 ? 'background:#f7f8fb;' : '') + '">' +
+        '<div style="font-weight:700;margin-bottom:6px;">' + DOW_FR[i].charAt(0).toUpperCase() + DOW_FR[i].slice(1) + ' ' + fmtDayFr(day) + '</div>' +
+        '<div style="display:flex;gap:8px;"><label style="flex:1;font-size:11px;color:var(--text-secondary);">Travaillées' + inp('ts-worked', x.worked, locked) + '</label>' +
+        '<label style="flex:1;font-size:11px;color:var(--text-secondary);">Banque mobile' + inp('ts-mobile', x.mobile, locked) + '</label>' +
+        '<label style="flex:1;font-size:11px;color:var(--text-secondary);">Payées' + inp('ts-paid', x.paid, locked) + '</label></div>' +
+        '<input type="text" class="ts-note" maxlength="200" placeholder="Note (facultatif)" value="' + escapeHtml(x.note || '') + '" style="width:100%;margin-top:6px;" ' + (locked ? 'disabled' : '') + '></div>'; }).join('') +
+    '<div id="ts-totals" style="border:1px solid var(--border);border-radius:12px;padding:10px;margin:10px 0;font-size:13px;"></div>' +
+    '<label style="font-size:13px;font-weight:600;">Commentaires</label><textarea id="ts-comment" maxlength="2000" style="margin-top:4px;" ' + (locked ? 'disabled' : '') + '>' + escapeHtml(sh.comment || '') + '</textarea>' +
+    (locked ? '' : '<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-secondary" id="btn-ts-save" style="flex:1;margin-top:0;">Enregistrer</button><button class="btn-main" id="btn-ts-submit" style="flex:1;margin-top:0;"' + (d.approverMissing ? ' disabled' : '') + '>Soumettre</button></div>');
+  // Les heures payées suivent travaillées + banque mobile tant que l'employé ne les modifie pas.
+  box.querySelectorAll('.ts-day').forEach(row => {
+    const w = row.querySelector('.ts-worked'), m = row.querySelector('.ts-mobile'), p = row.querySelector('.ts-paid');
+    const day = sh.days[row.dataset.day];
+    p.dataset.manual = (Math.abs((Number(day.paid) || 0) - ((Number(day.worked) || 0) + (Number(day.mobile) || 0))) > 0.004) ? '1' : '';
+    const auto = () => { if (!p.dataset.manual) { const v = (Number(w.value) || 0) + (Number(m.value) || 0); p.value = v ? v : ''; } tsTotals(); };
+    w.addEventListener('input', auto); m.addEventListener('input', auto);
+    p.addEventListener('input', () => { p.dataset.manual = '1'; tsTotals(); });
+  });
+  function tsTotals() {
+    let wk = 0, mo = 0, pd = 0;
+    box.querySelectorAll('.ts-day').forEach(row => { wk += Number(row.querySelector('.ts-worked').value) || 0; mo += Number(row.querySelector('.ts-mobile').value) || 0; pd += Number(row.querySelector('.ts-paid').value) || 0; });
+    const delta = wk + mo - pd, left = d.balances.mobile - mo;
+    document.getElementById('ts-totals').innerHTML = 'Travaillées : <b>' + hFmt(wk) + '</b> · Banque mobile utilisée : <b>' + hFmt(mo) + '</b> · Payées : <b>' + hFmt(pd) + '</b><br>Mouvement de la banque de temps : <b style="color:' + hColor(delta) + ';">' + hSigned(delta) + '</b>' + (mo > 0 ? ' · Heures mobiles restantes : <b style="color:' + hColor(left) + ';">' + hFmt(left) + '</b>' : '');
+  }
+  tsTotals();
+  const collect = submit => {
+    const daysOut = {};
+    box.querySelectorAll('.ts-day').forEach(row => { daysOut[row.dataset.day] = { worked: row.querySelector('.ts-worked').value, mobile: row.querySelector('.ts-mobile').value, paid: row.querySelector('.ts-paid').value, note: row.querySelector('.ts-note').value }; });
+    return { weekStart: sh.weekStart, days: daysOut, comment: document.getElementById('ts-comment').value, submit };
+  };
+  const doSave = async (submit, btn) => {
+    if (submit && !confirm('Soumettre cette feuille de temps ? Elle sera envoyée par courriel à ' + (d.approverName || 'votre responsable') + ' et ne pourra plus être modifiée.')) return;
+    btn.disabled = true;
+    try {
+      const out = await hoursCall('tsSave', collect(submit));
+      showToast(submit ? (out.mail && out.mail.ok ? 'Feuille soumise et envoyée ✔' : 'Feuille soumise (courriel non envoyé : ' + ((out.mail && out.mail.error) || 'erreur') + ')') : 'Brouillon enregistré ✔');
+      await renderTimesheet();
+    } catch (e) { showToast(e.message); btn.disabled = false; }
+  };
+  const bs = document.getElementById('btn-ts-save'), bu = document.getElementById('btn-ts-submit');
+  if (bs) bs.addEventListener('click', () => doSave(false, bs));
+  if (bu) bu.addEventListener('click', () => doSave(true, bu));
+}
+document.getElementById('btn-open-banks').addEventListener('click', openBanks);
+document.getElementById('btn-close-banks').addEventListener('click', () => document.getElementById('banks-panel').classList.add('hidden'));
+document.getElementById('btn-open-timesheet').addEventListener('click', openTimesheet);
+document.getElementById('btn-close-timesheet').addEventListener('click', () => document.getElementById('timesheet-panel').classList.add('hidden'));
+document.getElementById('btn-ts-week-prev').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, -7); renderTimesheet(); });
+document.getElementById('btn-ts-week-next').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, 7); renderTimesheet(); });
 
 // ===================== Absences (remplace le formulaire Monday) =====================
 async function openAbsences() {
