@@ -514,6 +514,17 @@ module.exports = async function handler(req, res) {
     try {
       const hb = require('./_lib/hours-bank');
       // Rôle admin / lecture seule déterminé comme pour le reste d'Exacto-Heures (accès aux modules Finance).
+      // Saisie personnelle sur ordinateur (Exacto-Heures, connexion Clerk) : l'employé lié au compte (courriel) voit/saisit SA feuille.
+      if (meta.role !== 'employee' && ['myProfile', 'myOverview', 'tsGet', 'tsSave'].includes(action)) {
+        const accS = require('./_lib/access');
+        const selfId = await hb.resolveSelf(meta.sub, await accS.emailOf(meta));
+        if (!selfId) {
+          if (action === 'myProfile') { res.status(200).json({ linked: false }); return; }
+          res.status(404).json({ error: 'Aucun employé n\u2019est lié à votre compte (courriel).' }); return;
+        }
+        res.status(200).json(await hb.handle('employee', action, req.body || {}, { email: '', employeeId: selfId }));
+        return;
+      }
       let hbRole = meta.role, hbScope = 'all';
       if (hbRole !== 'employee') {
         const acc = require('./_lib/access');

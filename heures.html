@@ -248,6 +248,7 @@
     <button data-tab="parprojet">Vue par projet</button>
     <button data-tab="comptes" style="margin-left:auto;">Comptes employés</button>
     <button data-tab="absences">Absences</button>
+    <button data-tab="mats" id="tabbtn-mats" style="display:none;">Ma feuille de temps</button>
     <button data-tab="banques">Banques de temps</button>
     <button data-tab="feuilles">Feuilles de temps</button>
     <button data-tab="export">Export paie</button>
@@ -265,6 +266,17 @@
       </div>
       <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Soldes en heures. Les employés de chantier alimentent leurs banques CCQ / hors CCQ via la Vue de la semaine (heures payées ≠ travaillées). Utilisez « Détail » pour inscrire un solde d'ouverture ou un ajustement.</p>
       <div id="banques-content"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-mats">
+      <div class="weeknav" style="margin-bottom:8px;">
+        <span style="font-weight:700;">Ma feuille de temps</span>
+        <button class="btn btn-outline" id="mats-prev">◀</button>
+        <span id="mats-week-label" style="min-width:210px;text-align:center;"></span>
+        <button class="btn btn-outline" id="mats-next">▶</button>
+        <button class="btn btn-outline" id="mats-today">Cette semaine</button>
+      </div>
+      <div id="mats-content"><div class="empty-state">Chargement…</div></div>
     </div>
 
     <div class="tab-panel" id="tab-feuilles">
@@ -4320,6 +4332,75 @@ function hbWireCfg(tr, empId) {
   sel.addEventListener('change', save);
 }
 
+// ===================== Ma feuille de temps (saisie personnelle sur ordinateur) =====================
+// L'employé de bureau (feuille de temps activée dans Comptes employés) saisit ses heures ici, avec son compte Exacto-Heures :
+// l'employé est retrouvé par le courriel (pro / personnel) du compte. Même logique que Punch mobile (api/_lib/hours-bank.js).
+let matsProfile = null, matsWeek = null;   // matsWeek = dimanche (YYYY-MM-DD)
+function matsSunday(d) { const t = new Date(d + 'T12:00:00'); t.setDate(t.getDate() - t.getDay()); return toLocalISODate(t); }
+function matsAdd(d, n) { const t = new Date(d + 'T12:00:00'); t.setDate(t.getDate() + n); return toLocalISODate(t); }
+const MATS_DOW = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+async function matsInit() {
+  try { matsProfile = await hoursApi('myProfile', {}); } catch (e) { matsProfile = { linked: false }; }
+  return !!(matsProfile && matsProfile.linked && matsProfile.timesheet);
+}
+function matsLabel() {
+  const f = d => new Date(d + 'T12:00:00').toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+  document.getElementById('mats-week-label').textContent = 'Semaine du ' + f(matsWeek) + ' au ' + f(matsAdd(matsWeek, 6));
+}
+async function loadMaFeuille() {
+  if (!matsWeek) matsWeek = matsSunday(toLocalISODate(new Date()));
+  matsLabel();
+  const box = document.getElementById('mats-content');
+  box.innerHTML = '<div class="empty-state">Chargement…</div>';
+  let d, ov;
+  try { [d, ov] = await Promise.all([hoursApi('tsGet', { weekStart: matsWeek }), hoursApi('myOverview', {})]); }
+  catch (e) { box.innerHTML = '<div class="empty-state">' + escapeHtml(e.message) + '</div>'; return; }
+  const sh = d.sheet, locked = sh.status === 'soumise', days = Object.keys(sh.days).sort();
+  const num = (cls, v, dis) => `<input type="number" class="${cls}" step="0.25" min="0" max="24" value="${v ? Number(v) : ''}" placeholder="0" style="width:90px;text-align:right;" ${dis ? 'disabled' : ''}>`;
+  const card = (t, v, st) => `<div style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:10px;padding:10px 14px;background:var(--panel);"><div style="font-size:12px;color:var(--text-secondary);">${t}</div><div style="font-size:20px;${st || ''}">${v}</div></div>`;
+  const KIND = ov.kinds || {};
+  box.innerHTML =
+    `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${card('Banque de temps', hbFmt(d.balances.bureau), hbCls(d.balances.bureau))}${card('Heures mobiles disponibles', hbFmt(d.balances.mobile), hbCls(d.balances.mobile))}</div>` +
+    (locked ? `<div style="background:#e8f5ee;color:#15803d;border-radius:8px;padding:8px 12px;margin-bottom:10px;">✔ Feuille soumise${sh.submittedAt ? ' le ' + new Date(sh.submittedAt).toLocaleDateString('fr-CA') : ''}${d.approverName ? ' à ' + escapeHtml(d.approverName) : ''}. Pour la corriger, demandez sa réouverture à un administrateur.</div>` : '') +
+    (!locked && d.approverMissing ? '<div style="background:#fff1d9;color:#7a4a00;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Aucun responsable n’est désigné pour recevoir votre feuille de temps : vous pouvez l’enregistrer, mais pas la soumettre. Contactez un administrateur.</div>' : '') +
+    `<table><thead><tr><th>Jour</th><th>Heures travaillées</th><th>Banque mobile utilisée</th><th>Heures payées</th><th>Note</th></tr></thead><tbody>` +
+    days.map((day, i) => { const x = sh.days[day]; return `<tr class="mats-day" data-day="${day}" ${i === 0 || i === 6 ? 'style="background:rgba(120,130,150,.08)"' : ''}><td><b>${MATS_DOW[i]}</b> ${day.slice(8)}/${day.slice(5, 7)}</td><td>${num('mats-worked', x.worked, locked)}</td><td>${num('mats-mobile', x.mobile, locked)}</td><td>${num('mats-paid', x.paid, locked)}</td><td><input type="text" class="mats-note" maxlength="200" value="${escapeHtml(x.note || '')}" placeholder="Facultatif" style="width:100%;" ${locked ? 'disabled' : ''}></td></tr>`; }).join('') +
+    `</tbody><tfoot><tr style="font-weight:700;"><td>Total</td><td id="mats-t-w" style="text-align:right;"></td><td id="mats-t-m" style="text-align:right;"></td><td id="mats-t-p" style="text-align:right;"></td><td id="mats-t-d"></td></tr></tfoot></table>` +
+    `<div style="margin:12px 0 4px;font-weight:600;">Commentaires</div><textarea id="mats-comment" maxlength="2000" rows="3" style="width:100%;" ${locked ? 'disabled' : ''}>${escapeHtml(sh.comment || '')}</textarea>` +
+    (locked ? '' : '<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn btn-outline" id="mats-save-draft">Enregistrer le brouillon</button><button class="btn btn-primary" id="mats-submit">Soumettre la feuille</button></div>') +
+    `<h4 style="margin:22px 0 6px;">Mes transactions de banque</h4><table><thead><tr><th>Date</th><th>Banque</th><th>Type</th><th>Heures</th><th>Note</th></tr></thead><tbody>` +
+    ((ov.transactions || []).map(t => `<tr><td>${t.day.split('-').reverse().join('/')}</td><td>${HB_LABEL[t.bank] || t.bank}</td><td>${KIND[t.kind] || t.kind}</td><td style="${hbCls(t.hours)}">${hbSigned(t.hours)}</td><td>${escapeHtml(t.note || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">Aucune transaction.</td></tr>') + '</tbody></table>';
+  const rows = [...box.querySelectorAll('.mats-day')];
+  rows.forEach(r => {
+    const w = r.querySelector('.mats-worked'), m = r.querySelector('.mats-mobile'), p = r.querySelector('.mats-paid'), x = sh.days[r.dataset.day];
+    p.dataset.manual = Math.abs((Number(x.paid) || 0) - ((Number(x.worked) || 0) + (Number(x.mobile) || 0))) > 0.004 ? '1' : '';
+    const auto = () => { if (!p.dataset.manual) { const v = (Number(w.value) || 0) + (Number(m.value) || 0); p.value = v ? v : ''; } tot(); };
+    w.addEventListener('input', auto); m.addEventListener('input', auto); p.addEventListener('input', () => { p.dataset.manual = '1'; tot(); });
+  });
+  function tot() {
+    let w = 0, m = 0, p = 0; rows.forEach(r => { w += Number(r.querySelector('.mats-worked').value) || 0; m += Number(r.querySelector('.mats-mobile').value) || 0; p += Number(r.querySelector('.mats-paid').value) || 0; });
+    document.getElementById('mats-t-w').textContent = hbFmt(w); document.getElementById('mats-t-m').textContent = hbFmt(m); document.getElementById('mats-t-p').textContent = hbFmt(p);
+    const delta = w + m - p, left = d.balances.mobile - m;
+    document.getElementById('mats-t-d').innerHTML = 'Mouvement banque de temps : <span style="' + hbCls(delta) + '">' + hbSigned(delta) + '</span> · Mobiles restantes : <span style="' + hbCls(left) + '">' + hbFmt(left) + '</span>';
+  }
+  tot();
+  const collect = submit => { const out = {}; rows.forEach(r => { out[r.dataset.day] = { worked: r.querySelector('.mats-worked').value, mobile: r.querySelector('.mats-mobile').value, paid: r.querySelector('.mats-paid').value, note: r.querySelector('.mats-note').value }; }); return { weekStart: sh.weekStart, days: out, comment: document.getElementById('mats-comment').value, submit }; };
+  const go = async (submit, btn) => {
+    if (submit && !confirm('Soumettre cette feuille de temps ? Elle sera envoyée par courriel à ' + (d.approverName || 'votre responsable') + ' et ne pourra plus être modifiée.')) return;
+    btn.disabled = true;
+    try {
+      const o = await hoursApi('tsSave', collect(submit));
+      showToast(submit ? (o.mail && o.mail.ok ? 'Feuille soumise et envoyée ✔' : 'Feuille soumise (courriel non envoyé : ' + ((o.mail && o.mail.error) || 'erreur') + ')') : 'Brouillon enregistré ✔');
+      loadMaFeuille();
+    } catch (e) { showToast(e.message); btn.disabled = false; }
+  };
+  const b1 = document.getElementById('mats-save-draft'), b2 = document.getElementById('mats-submit');
+  if (b1) b1.addEventListener('click', () => go(false, b1)); if (b2) b2.addEventListener('click', () => go(true, b2));
+}
+document.getElementById('mats-prev').addEventListener('click', () => { matsWeek = matsAdd(matsWeek || matsSunday(toLocalISODate(new Date())), -7); loadMaFeuille(); });
+document.getElementById('mats-next').addEventListener('click', () => { matsWeek = matsAdd(matsWeek || matsSunday(toLocalISODate(new Date())), 7); loadMaFeuille(); });
+document.getElementById('mats-today').addEventListener('click', () => { matsWeek = matsSunday(toLocalISODate(new Date())); loadMaFeuille(); });
+
 // ===================== Navigation =====================
 document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -4329,6 +4410,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'comptes' && !employeesCache.length) loadComptes();
     if (btn.dataset.tab === 'absences') loadAbsencesAdmin();
+    if (btn.dataset.tab === 'mats') loadMaFeuille();
     if (btn.dataset.tab === 'banques') loadBanques();
     if (btn.dataset.tab === 'feuilles') loadFeuilles();
     if (btn.dataset.tab === 'dashboard') loadDashboard();
@@ -4623,12 +4705,18 @@ async function initApp() {
   }
   isReadOnlyUser = (meta.role === 'lecture-seule');
   // Accès par module (Finance → Configuration → Accès aux modules) : le serveur fait foi.
+  let employeeOnly = false;
   try {
     const acc = await planifApi('myAccess');
-    if (acc && acc.punch_admin === 'none') { document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Vous n\u2019avez pas accès à Admin Punch. Demandez l\u2019accès à un administrateur.</div>'; return; }
+    if (acc && acc.punch_admin === 'none') {
+      // Sans accès administrateur : l'employé de bureau (feuille de temps activée) accède seulement à « Ma feuille de temps ».
+      if (await matsInit()) employeeOnly = true;
+    }
+    if (!employeeOnly && acc && acc.punch_admin === 'none') { document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">⚠ Vous n\u2019avez pas accès à Admin Punch. Demandez l\u2019accès à un administrateur.</div>'; return; }
     if (acc && acc.punch_admin) isReadOnlyUser = (acc.punch_admin === 'read');
   } catch (e) { /* ancien système */ }
   if (isReadOnlyUser) { document.body.classList.add('role-readonly'); startReadOnlyEnforcement(); }
+  const hasMats = employeeOnly || await matsInit();
   appStarted = true;
   document.getElementById('clerk-signin').classList.add('hidden');
   document.getElementById('app').style.display = 'block';
@@ -4641,6 +4729,12 @@ async function initApp() {
   }
   const nameEl = document.getElementById('clerk-user-name');
   if (nameEl) nameEl.textContent = Clerk.user.fullName || Clerk.user.firstName || (Clerk.user.primaryEmailAddress && Clerk.user.primaryEmailAddress.emailAddress) || '';
+  if (hasMats) document.getElementById('tabbtn-mats').style.display = '';
+  if (employeeOnly) {
+    document.querySelectorAll('nav.tabs button').forEach(b => { if (b.dataset.tab !== 'mats') b.style.display = 'none'; });
+    document.getElementById('tabbtn-mats').click();
+    return;
+  }
   // Le Tableau de bord ne doit JAMAIS empêcher le reste de l'app de charger — s'il échoue pour
   // une raison quelconque (réseau, CDN, etc.), on l'affiche en erreur mais on continue.
   try {

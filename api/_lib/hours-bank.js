@@ -240,6 +240,11 @@ function tsHtml(emp, ws, sheet, approverName) {
 }
 
 const EMPLOYEE = {
+  async myProfile(ctx) {
+    const e = await empInfo(ctx.employeeId);
+    const cfg = await q('SELECT timesheet FROM hb_cfg WHERE employee_id = $1', [ctx.employeeId]);
+    return { linked: true, employeeId: ctx.employeeId, name: e ? e.name : '', timesheet: !!(cfg[0] && cfg[0].timesheet) };
+  },
   async myOverview(ctx) {
     const id = ctx.employeeId;
     const [cfg, bal, tx] = await Promise.all([
@@ -305,7 +310,7 @@ async function handle(role, action, body, ctx) {
   await ensure();
   if (role === 'employee') {
     if (!ctx.employeeId) fail(403, 'Compte employé invalide.');
-    if (!['myOverview', 'tsGet', 'tsSave'].includes(action)) fail(403, 'Action non permise.');
+    if (!['myProfile', 'myOverview', 'tsGet', 'tsSave'].includes(action)) fail(403, 'Action non permise.');
     return await EMPLOYEE[action](ctx, body || {});
   }
   if (role !== 'admin' && role !== 'lecture-seule') fail(403, 'Accès réservé aux administrateurs.');
@@ -337,4 +342,13 @@ async function handle(role, action, body, ctx) {
   return await fn(b, ctx || {});
 }
 
-module.exports = { handle, ensure, BANKS, sundayOf, tsTotals };
+/** Employé lié à un compte Clerk (clerk_user_id ou courriel pro/personnel) — pour la saisie sur ordinateur dans Exacto-Heures. */
+async function resolveSelf(sub, email) {
+  const em = String(email || '').toLowerCase();
+  const r = await q(`SELECT id::text AS id FROM fin_employee WHERE lower(trim(coalesce(company,''))) = 'epd' AND coalesce(status,'') NOT IN ('Terminé')
+    AND ((clerk_user_id IS NOT NULL AND clerk_user_id = $1) OR ($2 <> '' AND (lower(trim(coalesce(email_pro,''))) = $2 OR lower(trim(coalesce(email_personal,''))) = $2)))
+    ORDER BY (clerk_user_id = $1) DESC NULLS LAST LIMIT 1`, [String(sub || ''), em]);
+  return r[0] ? r[0].id : null;
+}
+
+module.exports = { resolveSelf, handle, ensure, BANKS, sundayOf, tsTotals };
