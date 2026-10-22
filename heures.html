@@ -3350,8 +3350,8 @@ async function loadComptes() {
   renderComptes();
 }
 
-const COMPTES_COLS_HEAD = `<th style="width:180px;">Employé</th><th>Titre d'emploi</th><th style="width:320px;">Tâches autorisées</th><th>Code avantage</th><th>Adresse complète</th><th>Téléphone</th><th>Accès</th><th title="N'affecte que l'export paie (.txt) — les exports PDF (Vue par employé/projet) restent inchangés.">Exclure export paie</th><th title="Prime salariale applicable (chef d'équipe, chef de groupe, etc.) — une seule à la fois. Configurée dans Configuration &gt; Primes.">Prime</th><th title="Voit dans sa vue Mobile un bouton « Approbation » pour approuver/rejeter les feuilles de temps des collègues sur le même chantier.">Approbateur</th><th title="Active l'onglet Feuille de temps dans Exacto-Punch pour cet employé (employés de bureau qui ne punchent pas par projet).">Feuille de temps (bureau)</th><th title="Reçoit la feuille de temps par courriel quand elle est soumise.">Responsable feuille de temps</th><th>Actions</th>`;
-const COMPTES_COLSPAN = 13;
+const COMPTES_COLS_HEAD = `<th style="width:180px;">Employé</th><th>Titre d'emploi</th><th style="width:320px;">Tâches autorisées</th><th>Code avantage</th><th>Adresse complète</th><th>Téléphone</th><th>Accès</th><th title="N'affecte que l'export paie (.txt) — les exports PDF (Vue par employé/projet) restent inchangés.">Exclure export paie</th><th title="Prime salariale applicable (chef d'équipe, chef de groupe, etc.) — une seule à la fois. Configurée dans Configuration &gt; Primes.">Prime</th><th title="Voit dans sa vue Mobile un bouton « Approbation » pour approuver/rejeter les feuilles de temps des collègues sur le même chantier.">Approbateur</th><th title="Active l'onglet Feuille de temps dans Exacto-Punch pour cet employé (employés de bureau qui ne punchent pas par projet).">Feuille de temps (bureau)</th><th title="Reçoit la feuille de temps par courriel quand elle est soumise.">Responsable feuille de temps</th><th title="Donne accès à Exacto-Chantier (plans, documents, déficiences) avec le téléphone et le mot de passe Exacto-Punch. Pour les contremaîtres.">Chantier</th><th>Actions</th>`;
+const COMPTES_COLSPAN = 14;
 
 function comptesRowHtml(e, isTermine) {
   const taches = tachesForTitre(e.titre);
@@ -4317,15 +4317,19 @@ async function loadHoursCfg() { try { hbCfg = (await hoursApi('cfgList')).cfg ||
 function hbCfgCells(e) {
   const c = hbCfg[e.id] || { timesheet: false, approverEmployeeId: '' };
   const opts = '<option value="">— Responsable —</option>' + employeesCache.filter(x => x.statut === 'Actif' && x.id !== e.id).map(x => `<option value="${x.id}" ${x.id === c.approverEmployeeId ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
-  return `<td style="text-align:center;"><input type="checkbox" class="inp-timesheet" ${c.timesheet ? 'checked' : ''}></td><td><select class="sel-ts-approver" ${c.timesheet ? '' : 'disabled'}>${opts}</select></td>`;
+  return `<td style="text-align:center;"><input type="checkbox" class="inp-timesheet" ${c.timesheet ? 'checked' : ''}></td><td><select class="sel-ts-approver" ${c.timesheet ? '' : 'disabled'}>${opts}</select></td><td style="text-align:center;"><input type="checkbox" class="inp-chantier" ${c.chantier ? 'checked' : ''}></td>`;
 }
 function hbWireCfg(tr, empId) {
-  const chk = tr.querySelector('.inp-timesheet'), sel = tr.querySelector('.sel-ts-approver');
+  const chk = tr.querySelector('.inp-timesheet'), sel = tr.querySelector('.sel-ts-approver'), chc = tr.querySelector('.inp-chantier');
+  if (chc) chc.addEventListener('change', async () => {
+    try { await hoursApi('chantierSave', { employeeId: empId, chantier: chc.checked }); hbCfg[empId] = Object.assign(hbCfg[empId] || { timesheet: false, approverEmployeeId: '' }, { chantier: chc.checked }); showToast('Enregistré ✔'); }
+    catch (e) { showToast('Erreur : ' + e.message); chc.checked = !chc.checked; }
+  });
   if (!chk || !sel) return;
   const save = async () => {
     try {
       await hoursApi('cfgSave', { employeeId: empId, timesheet: chk.checked, approverEmployeeId: sel.value });
-      hbCfg[empId] = { timesheet: chk.checked, approverEmployeeId: sel.value }; sel.disabled = !chk.checked; showToast('Enregistré ✔');
+      hbCfg[empId] = Object.assign({}, hbCfg[empId], { timesheet: chk.checked, approverEmployeeId: sel.value }); sel.disabled = !chk.checked; showToast('Enregistré ✔');
     } catch (e) { showToast('Erreur : ' + e.message); chk.checked = !chk.checked; sel.disabled = !chk.checked; }
   };
   chk.addEventListener('change', () => { sel.disabled = !chk.checked; if (chk.checked && !sel.value) showToast('Choisissez le responsable qui recevra la feuille de temps.'); save(); });
@@ -4363,9 +4367,9 @@ async function loadMaFeuille() {
     `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${card('Banque de temps', hbFmt(d.balances.bureau), hbCls(d.balances.bureau))}${card('Heures mobiles disponibles', hbFmt(d.balances.mobile), hbCls(d.balances.mobile))}</div>` +
     (locked ? `<div style="background:#e8f5ee;color:#15803d;border-radius:8px;padding:8px 12px;margin-bottom:10px;">✔ Feuille soumise${sh.submittedAt ? ' le ' + new Date(sh.submittedAt).toLocaleDateString('fr-CA') : ''}${d.approverName ? ' à ' + escapeHtml(d.approverName) : ''}. Pour la corriger, demandez sa réouverture à un administrateur.</div>` : '') +
     (!locked && d.approverMissing ? '<div style="background:#fff1d9;color:#7a4a00;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Aucun responsable n’est désigné pour recevoir votre feuille de temps : vous pouvez l’enregistrer, mais pas la soumettre. Contactez un administrateur.</div>' : '') +
-    `<table><thead><tr><th>Jour</th><th>Heures travaillées</th><th>Banque mobile utilisée</th><th>Heures payées</th><th>Note</th></tr></thead><tbody>` +
-    days.map((day, i) => { const x = sh.days[day]; return `<tr class="mats-day" data-day="${day}" ${i === 0 || i === 6 ? 'style="background:rgba(120,130,150,.08)"' : ''}><td><b>${MATS_DOW[i]}</b> ${day.slice(8)}/${day.slice(5, 7)}</td><td>${num('mats-worked', x.worked, locked)}</td><td>${num('mats-mobile', x.mobile, locked)}</td><td>${num('mats-paid', x.paid, locked)}</td><td><input type="text" class="mats-note" maxlength="200" value="${escapeHtml(x.note || '')}" placeholder="Facultatif" style="width:100%;" ${locked ? 'disabled' : ''}></td></tr>`; }).join('') +
-    `</tbody><tfoot><tr style="font-weight:700;"><td>Total</td><td id="mats-t-w" style="text-align:right;"></td><td id="mats-t-m" style="text-align:right;"></td><td id="mats-t-p" style="text-align:right;"></td><td id="mats-t-d"></td></tr></tfoot></table>` +
+    `<table><thead><tr><th>Jour</th><th>Début</th><th>Fin</th><th>Dîner (min)</th><th>Heures travaillées</th><th>Banque mobile utilisée</th><th>Heures payées</th><th>Note</th></tr></thead><tbody>` +
+    days.map((day, i) => { const x = sh.days[day]; return `<tr class="mats-day" data-day="${day}" ${i === 0 || i === 6 ? 'style="background:rgba(120,130,150,.08)"' : ''}><td><b>${MATS_DOW[i]}</b> ${day.slice(8)}/${day.slice(5, 7)}</td><td><input type="time" class="mats-start" value="${x.start || ''}" ${locked ? 'disabled' : ''}></td><td><input type="time" class="mats-end" value="${x.end || ''}" ${locked ? 'disabled' : ''}></td><td><input type="number" class="mats-lunch" min="0" max="600" step="5" value="${(x.start || x.end || x.worked) ? (x.lunch || 0) : 30}" style="width:70px;text-align:right;" ${locked ? 'disabled' : ''}></td><td>${num('mats-worked', x.worked, locked)}</td><td>${num('mats-mobile', x.mobile, locked)}</td><td>${num('mats-paid', x.paid, locked)}</td><td><input type="text" class="mats-note" maxlength="200" value="${escapeHtml(x.note || '')}" placeholder="Facultatif" style="width:100%;" ${locked ? 'disabled' : ''}></td></tr>`; }).join('') +
+    `</tbody><tfoot><tr style="font-weight:700;"><td>Total</td><td colspan="3"></td><td id="mats-t-w" style="text-align:right;"></td><td id="mats-t-m" style="text-align:right;"></td><td id="mats-t-p" style="text-align:right;"></td><td id="mats-t-d"></td></tr></tfoot></table>` +
     `<div style="margin:12px 0 4px;font-weight:600;">Commentaires</div><textarea id="mats-comment" maxlength="2000" rows="3" style="width:100%;" ${locked ? 'disabled' : ''}>${escapeHtml(sh.comment || '')}</textarea>` +
     (locked ? '' : '<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn btn-outline" id="mats-save-draft">Enregistrer le brouillon</button><button class="btn btn-primary" id="mats-submit">Soumettre la feuille</button></div>') +
     `<h4 style="margin:22px 0 6px;">Mes transactions de banque</h4><table><thead><tr><th>Date</th><th>Banque</th><th>Type</th><th>Heures</th><th>Note</th></tr></thead><tbody>` +
@@ -4373,6 +4377,18 @@ async function loadMaFeuille() {
   const rows = [...box.querySelectorAll('.mats-day')];
   rows.forEach(r => {
     const w = r.querySelector('.mats-worked'), m = r.querySelector('.mats-mobile'), p = r.querySelector('.mats-paid'), x = sh.days[r.dataset.day];
+    const st = r.querySelector('.mats-start'), en = r.querySelector('.mats-end'), lu = r.querySelector('.mats-lunch');
+    // Début + fin + dîner => heures travaillées calculées (champ verrouillé tant que début et fin sont remplis).
+    const calc = () => {
+      const both = st.value && en.value; w.readOnly = !!both; w.style.background = both ? 'rgba(120,130,150,.15)' : '';
+      if (both) {
+        const mins = (+en.value.slice(0, 2) * 60 + +en.value.slice(3)) - (+st.value.slice(0, 2) * 60 + +st.value.slice(3)) - (Number(lu.value) || 0);
+        w.value = mins > 0 ? Math.round(mins / 60 * 100) / 100 : '';
+      }
+      if (!p.dataset.manual) { const v = (Number(w.value) || 0) + (Number(m.value) || 0); p.value = v ? v : ''; }
+      tot();
+    };
+    [st, en, lu].forEach(el => el.addEventListener('input', calc));
     p.dataset.manual = Math.abs((Number(x.paid) || 0) - ((Number(x.worked) || 0) + (Number(x.mobile) || 0))) > 0.004 ? '1' : '';
     const auto = () => { if (!p.dataset.manual) { const v = (Number(w.value) || 0) + (Number(m.value) || 0); p.value = v ? v : ''; } tot(); };
     w.addEventListener('input', auto); m.addEventListener('input', auto); p.addEventListener('input', () => { p.dataset.manual = '1'; tot(); });
@@ -4383,8 +4399,9 @@ async function loadMaFeuille() {
     const delta = w + m - p, left = d.balances.mobile - m;
     document.getElementById('mats-t-d').innerHTML = 'Mouvement banque de temps : <span style="' + hbCls(delta) + '">' + hbSigned(delta) + '</span> · Mobiles restantes : <span style="' + hbCls(left) + '">' + hbFmt(left) + '</span>';
   }
+  rows.forEach(r => { if (r.querySelector('.mats-start').value && r.querySelector('.mats-end').value) { const w = r.querySelector('.mats-worked'); w.readOnly = true; w.style.background = 'rgba(120,130,150,.15)'; } });
   tot();
-  const collect = submit => { const out = {}; rows.forEach(r => { out[r.dataset.day] = { worked: r.querySelector('.mats-worked').value, mobile: r.querySelector('.mats-mobile').value, paid: r.querySelector('.mats-paid').value, note: r.querySelector('.mats-note').value }; }); return { weekStart: sh.weekStart, days: out, comment: document.getElementById('mats-comment').value, submit }; };
+  const collect = submit => { const out = {}; rows.forEach(r => { out[r.dataset.day] = { start: r.querySelector('.mats-start').value, end: r.querySelector('.mats-end').value, lunch: r.querySelector('.mats-lunch').value, worked: r.querySelector('.mats-worked').value, mobile: r.querySelector('.mats-mobile').value, paid: r.querySelector('.mats-paid').value, note: r.querySelector('.mats-note').value }; }); return { weekStart: sh.weekStart, days: out, comment: document.getElementById('mats-comment').value, submit }; };
   const go = async (submit, btn) => {
     if (submit && !confirm('Soumettre cette feuille de temps ? Elle sera envoyée par courriel à ' + (d.approverName || 'votre responsable') + ' et ne pourra plus être modifiée.')) return;
     btn.disabled = true;

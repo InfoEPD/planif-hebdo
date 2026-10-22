@@ -156,8 +156,9 @@ const ADMIN = {
 
   // ----- Configuration par employé (Comptes employés) -----
   async cfgList() {
-    const rows = await q('SELECT employee_id, timesheet, approver_employee_id FROM hb_cfg');
-    const cfg = {}; rows.forEach(r => { cfg[String(r.employee_id)] = { timesheet: !!r.timesheet, approverEmployeeId: r.approver_employee_id || '' }; });
+    await q('ALTER TABLE hb_cfg ADD COLUMN IF NOT EXISTS chantier BOOLEAN NOT NULL DEFAULT FALSE');
+    const rows = await q('SELECT employee_id, timesheet, approver_employee_id, chantier FROM hb_cfg');
+    const cfg = {}; rows.forEach(r => { cfg[String(r.employee_id)] = { timesheet: !!r.timesheet, approverEmployeeId: r.approver_employee_id || '', chantier: !!r.chantier }; });
     return { cfg };
   },
   async cfgSave(b, ctx) {
@@ -171,6 +172,15 @@ const ADMIN = {
     await q(`INSERT INTO hb_cfg (employee_id, timesheet, approver_employee_id, updated_by) VALUES ($1,$2,$3,$4)
       ON CONFLICT (employee_id) DO UPDATE SET timesheet = EXCLUDED.timesheet, approver_employee_id = EXCLUDED.approver_employee_id, updated_by = EXCLUDED.updated_by, updated_at = now()`,
       [b.employeeId, !!b.timesheet, appr, ctx.email || '']);
+    return { ok: true };
+  },
+
+  /** Accès à Exacto-Chantier (contremaîtres) — case « Chantier » de Comptes employés. */
+  async chantierSave(b, ctx) {
+    if (!isId(b.employeeId)) fail(400, 'Employé invalide.');
+    await q('ALTER TABLE hb_cfg ADD COLUMN IF NOT EXISTS chantier BOOLEAN NOT NULL DEFAULT FALSE');
+    await q(`INSERT INTO hb_cfg (employee_id, chantier, updated_by) VALUES ($1,$2,$3)
+      ON CONFLICT (employee_id) DO UPDATE SET chantier = EXCLUDED.chantier, updated_by = EXCLUDED.updated_by, updated_at = now()`, [b.employeeId, !!b.chantier, (ctx && ctx.email) || '']);
     return { ok: true };
   },
 
@@ -207,9 +217,18 @@ function cleanDays(ws, input) {
   const out = {};
   for (let i = 0; i < 7; i++) {
     const d = addDays(ws, i), x = (input && input[d]) || {};
-    const worked = num(x.worked, { min: 0, max: 24 }) || 0, mobile = num(x.mobile, { min: 0, max: 24 }) || 0;
+    let worked = num(x.worked, { min: 0, max: 24 }) || 0;
+    const mobile = num(x.mobile, { min: 0, max: 24 }) || 0;
+    // Heure de début / fin / dîner (minutes) : si début et fin sont indiqués, les heures travaillées en découlent (le serveur fait foi).
+    const tm = v => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || '')) ? String(v) : '');
+    const start = tm(x.start), end = tm(x.end), lunch = num(x.lunch, { min: 0, max: 600 }) || 0;
+    if (start && end) {
+      const mins = (+end.slice(0, 2) * 60 + +end.slice(3)) - (+start.slice(0, 2) * 60 + +start.slice(3));
+      if (mins <= 0) fail(400, 'L\u2019heure de fin doit être après l\u2019heure de début (' + fmtDay(d) + ').');
+      worked = r2(Math.max(0, mins - lunch) / 60);
+    }
     const paidIn = num(x.paid, { min: 0, max: 24 });
-    out[d] = { worked, mobile, paid: paidIn == null ? r2(worked + mobile) : paidIn, note: String(x.note || '').slice(0, 200) };
+    out[d] = { start, end, lunch, worked, mobile, paid: paidIn == null ? r2(worked + mobile) : paidIn, note: String(x.note || '').slice(0, 200) };
   }
   return out;
 }
@@ -231,7 +250,7 @@ async function loadTs(employeeId, ws) {
 function tsHtml(emp, ws, sheet, approverName) {
   const t = sheet.totals;
   const rows = Object.keys(sheet.days).sort().map((d, i) => { const x = sheet.days[d];
-    return `<tr><td style="padding:4px 8px;border:1px solid #ddd">${DOW[i]} ${fmtDay(d)}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.worked.toFixed(2)}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.mobile ? x.mobile.toFixed(2) : '—'}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.paid.toFixed(2)}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(x.note)}</td></tr>`; }).join('');
+    return `<tr><td style="padding:4px 8px;border:1px solid #ddd">${DOW[i]} ${fmtDay(d)}${x.start && x.end ? ' <span style="color:#667">(' + x.start + ' – ' + x.end + ', dîner ' + (x.lunch || 0) + ' min)</span>' : ''}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.worked.toFixed(2)}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.mobile ? x.mobile.toFixed(2) : '—'}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right">${x.paid.toFixed(2)}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(x.note)}</td></tr>`; }).join('');
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#17223b"><h2 style="margin:0 0 6px">Feuille de temps — ${esc(emp.name)}</h2>
     <p style="margin:0 0 10px">Semaine du ${fmtDay(ws)} au ${fmtDay(addDays(ws, 6))}${approverName ? ' · Responsable : ' + esc(approverName) : ''}</p>
     <table style="border-collapse:collapse;font-size:13px"><thead><tr style="background:#eef2fb"><th style="padding:4px 8px;border:1px solid #ddd;text-align:left">Jour</th><th style="padding:4px 8px;border:1px solid #ddd">Travaillées (h)</th><th style="padding:4px 8px;border:1px solid #ddd">Banque mobile (h)</th><th style="padding:4px 8px;border:1px solid #ddd">Payées (h)</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:left">Note</th></tr></thead><tbody>${rows}</tbody>
@@ -323,7 +342,7 @@ async function handle(role, action, body, ctx) {
     const rows = await q(`SELECT id::text AS id FROM fin_employee WHERE lower(trim(coalesce(company,''))) = 'epd' AND lower(trim(coalesce(department,''))) = 'chantier'`);
     const ok = new Set(rows.map(r => r.id));
     const only = id => { if (!ok.has(String(id))) fail(403, 'Réservé aux employés de chantier.'); };
-    if (['cfgSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
+    if (['cfgSave', 'chantierSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
     if (action === 'tsList') return { sheets: [] };
     if (action === 'cfgList') return { cfg: {} };
     if (['paySave', 'txList', 'txAdd'].includes(action)) only(b.employeeId);
