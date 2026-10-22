@@ -342,10 +342,14 @@ async function handle(role, action, body, ctx) {
     const rows = await q(`SELECT id::text AS id FROM fin_employee WHERE lower(trim(coalesce(company,''))) = 'epd' AND lower(trim(coalesce(department,''))) = 'chantier'`);
     const ok = new Set(rows.map(r => r.id));
     const only = id => { if (!ok.has(String(id))) fail(403, 'Réservé aux employés de chantier.'); };
-    if (['cfgSave', 'chantierSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
+    if (['cfgSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
     if (action === 'tsList') return { sheets: [] };
-    if (action === 'cfgList') return { cfg: {} };
-    if (['paySave', 'txList', 'txAdd'].includes(action)) only(b.employeeId);
+    if (action === 'cfgList') {   // seule l'information « Chantier » est visible
+      const full = (await fn(b, ctx)).cfg || {}, cfg = {};
+      Object.keys(full).forEach(id => { if (ok.has(id)) cfg[id] = { timesheet: false, approverEmployeeId: '', chantier: !!full[id].chantier }; });
+      return { cfg };
+    }
+    if (['paySave', 'txList', 'txAdd', 'chantierSave'].includes(action)) only(b.employeeId);
     if (action === 'txDelete') {
       if (!isId(b.id)) fail(400, 'Transaction invalide.');
       const t = await q('SELECT employee_id FROM hb_tx WHERE id = $1', [b.id]);
