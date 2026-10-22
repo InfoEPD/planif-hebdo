@@ -33,6 +33,7 @@
   .card .icon { font-size:38px; line-height:1; }
   .card .label { font-size:16px; font-weight:700; }
   .card .sub { font-size:12px; color:var(--text-secondary); }
+  @media (min-width:761px) { .mobile-only { display:none !important; } }
   @media (max-width:760px) { .desktop-only { display:none !important; } .logo { height:auto; width:200px; max-width:70%; } .card { width:100%; max-width:340px; } h1 { margin-bottom:24px; } }
   footer { margin-top:48px; font-size:11px; color:var(--text-secondary); text-align:center; }
 </style>
@@ -45,7 +46,7 @@
       <span class="label">Exacto-Planif</span>
       <span class="sub">Planification chantier</span>
     </a>
-    <a class="card" href="/punch">
+    <a class="card mobile-only" href="/punch">
       <span class="label">Exacto-Punch</span>
       <span class="sub">Poinçon employé</span>
     </a>
