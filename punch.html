@@ -126,6 +126,8 @@
     <button class="btn-secondary" id="btn-open-absences" style="flex:1;margin-top:0;">🗓️ Absences</button>
     <button class="btn-secondary" id="btn-open-banks" style="flex:1;margin-top:0;">🏦 Mes banques</button>
     <button class="btn-secondary hidden" id="btn-open-timesheet" style="flex:1;margin-top:0;">📝 Feuille de temps</button>
+ 
+    <button class="btn-secondary hidden" id="btn-open-chantier" style="flex:1;margin-top:0;">🏗️ Exacto-Chantier</button>
     <button class="btn-secondary hidden" id="btn-open-approval" style="flex:1;margin-top:0;">✅ Approbation</button>
     <button class="btn-secondary" id="btn-open-mydata" style="flex:1;margin-top:0;">🔒 Mes données</button>
   </div>
@@ -1370,6 +1372,7 @@ async function initHoursButtons() {
     const o = await hoursCall('myOverview');
     state.hoursOverview = o;
     document.getElementById('btn-open-timesheet').classList.toggle('hidden', !o.timesheet);
+    document.getElementById('btn-open-chantier').classList.toggle('hidden', !o.chantier);   // case « Chantier » de Comptes employés (Exacto-Heures)
   } catch (e) { /* module non disponible : les boutons restent masqués/inertes */ }
 }
 async function openBanks() {
@@ -1455,6 +1458,11 @@ async function renderTimesheet() {
 document.getElementById('btn-open-banks').addEventListener('click', openBanks);
 document.getElementById('btn-close-banks').addEventListener('click', () => document.getElementById('banks-panel').classList.add('hidden'));
 document.getElementById('btn-open-timesheet').addEventListener('click', openTimesheet);
+// Exacto-Chantier (projet Exacto-Projets) : le jeton de connexion est transmis dans le fragment de l'adresse (#t=…, jamais envoyé au serveur)
+document.getElementById('btn-open-chantier').addEventListener('click', () => {
+  const t = authState && authState.token ? '#t=' + encodeURIComponent(authState.token) : '';
+  window.location.href = 'https://projets.exactoapp.ca/chantier' + t;
+});
 document.getElementById('btn-close-timesheet').addEventListener('click', () => document.getElementById('timesheet-panel').classList.add('hidden'));
 document.getElementById('btn-ts-week-prev').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, -7); renderTimesheet(); });
 document.getElementById('btn-ts-week-next').addEventListener('click', () => { state.tsWeek = addDaysToWeekKey(state.tsWeek, 7); renderTimesheet(); });

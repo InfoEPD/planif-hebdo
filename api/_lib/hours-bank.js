@@ -267,10 +267,10 @@ const EMPLOYEE = {
   async myOverview(ctx) {
     const id = ctx.employeeId;
     const [cfg, bal, tx] = await Promise.all([
-      q('SELECT timesheet FROM hb_cfg WHERE employee_id = $1', [id]),
+      q('SELECT timesheet, chantier FROM hb_cfg WHERE employee_id = $1', [id]).catch(() => q('SELECT timesheet FROM hb_cfg WHERE employee_id = $1', [id])),
       balancesFor([id]),
       q(`SELECT id, bank, kind, to_char(day,'YYYY-MM-DD') AS d, hours::float AS hours, note, created_by, created_at FROM hb_tx WHERE employee_id = $1 ORDER BY day DESC, id DESC LIMIT 200`, [id])]);
-    return { timesheet: !!(cfg[0] && cfg[0].timesheet), balances: blank(bal[id]), transactions: tx.map(txOut), labels: BANK_LABEL, kinds: KIND_LABEL };
+    return { timesheet: !!(cfg[0] && cfg[0].timesheet), chantier: !!(cfg[0] && cfg[0].chantier), balances: blank(bal[id]), transactions: tx.map(txOut), labels: BANK_LABEL, kinds: KIND_LABEL };
   },
 
   async tsGet(ctx, b) {
