@@ -1,7 +1,11 @@
 {
   "cleanUrls": true,
   "redirects": [
-    { "source": "/admin", "destination": "/heures", "permanent": false }
+    {
+      "source": "/admin",
+      "destination": "/heures",
+      "permanent": false
+    }
   ],
   "installCommand": "npm install",
   "buildCommand": "",
@@ -10,11 +14,39 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     }
   ],
   "crons": [
-    { "path": "/api/auto-close-punches", "schedule": "0 0 * * *" }
+    {
+      "path": "/api/auto-close-punches",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

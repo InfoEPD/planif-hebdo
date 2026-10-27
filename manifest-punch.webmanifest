@@ -1,0 +1,42 @@
+{
+  "id": "/punch",
+  "name": "Exacto-Punch",
+  "short_name": "Punch",
+  "description": "Exacto-Punch : poinçon des heures pour les employés.",
+  "lang": "fr-CA",
+  "dir": "ltr",
+  "start_url": "/punch?source=pwa",
+  "scope": "/punch",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#15803d",
+  "theme_color": "#15803d",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icons/punch-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/punch-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/punch-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
