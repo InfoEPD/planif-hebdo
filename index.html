@@ -34,6 +34,11 @@
   .card .label { font-size:16px; font-weight:700; }
   .card .sub { font-size:12px; color:var(--text-secondary); }
   @media (max-width:760px) { .desktop-only { display:none !important; } .logo { height:auto; width:200px; max-width:70%; } .card { width:100%; max-width:340px; } h1 { margin-bottom:24px; } }
+  @media (min-width:761px) {
+    .cards { display:grid; grid-template-columns:repeat(3, 230px); justify-content:center; max-width:none; }
+    .cards a[href$="/chantier"] { order:1; } .cards a[href="https://projets.exactoapp.ca"] { order:2; } .cards a[href$="/shop"] { order:3; }
+    .cards a[href="/planif"] { order:4; } .cards a[href="/heures"] { order:5; } .cards a[href="/punch"] { order:6; }
+  }
   footer { margin-top:48px; font-size:11px; color:var(--text-secondary); text-align:center; }
 </style>
 </head>
