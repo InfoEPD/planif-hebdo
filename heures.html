@@ -3350,8 +3350,8 @@ async function loadComptes() {
   renderComptes();
 }
 
-const COMPTES_COLS_HEAD = `<th style="width:180px;">Employé</th><th>Titre d'emploi</th><th style="width:320px;">Tâches autorisées</th><th>Code avantage</th><th>Adresse complète</th><th>Téléphone</th><th>Accès</th><th title="N'affecte que l'export paie (.txt) — les exports PDF (Vue par employé/projet) restent inchangés.">Exclure export paie</th><th title="Prime salariale applicable (chef d'équipe, chef de groupe, etc.) — une seule à la fois. Configurée dans Configuration &gt; Primes.">Prime</th><th title="Voit dans sa vue Mobile un bouton « Approbation » pour approuver/rejeter les feuilles de temps des collègues sur le même chantier.">Approbateur</th><th title="Active l'onglet Feuille de temps dans Exacto-Punch pour cet employé (employés de bureau qui ne punchent pas par projet).">Feuille de temps (bureau)</th><th title="Reçoit la feuille de temps par courriel quand elle est soumise.">Responsable feuille de temps</th><th title="Donne accès à Exacto-Chantier (plans, documents, déficiences) avec le téléphone et le mot de passe Exacto-Punch. Pour les contremaîtres.">Chantier</th><th>Actions</th>`;
-const COMPTES_COLSPAN = 14;
+const COMPTES_COLS_HEAD = `<th style="width:180px;">Employé</th><th>Titre d'emploi</th><th style="width:320px;">Tâches autorisées</th><th>Code avantage</th><th>Adresse complète</th><th>Téléphone</th><th>Accès</th><th title="N'affecte que l'export paie (.txt) — les exports PDF (Vue par employé/projet) restent inchangés.">Exclure export paie</th><th title="Prime salariale applicable (chef d'équipe, chef de groupe, etc.) — une seule à la fois. Configurée dans Configuration &gt; Primes.">Prime</th><th title="Voit dans sa vue Mobile un bouton « Approbation » pour approuver/rejeter les feuilles de temps des collègues sur le même chantier.">Approbateur</th><th title="Active l'onglet Feuille de temps dans Exacto-Punch pour cet employé (employés de bureau qui ne punchent pas par projet).">Feuille de temps (bureau)</th><th title="Affiche cet employé dans Exacto-Shop (Feuilles de temps shop) et lui permet d'y saisir ses heures. Indépendant de la case bureau.">Feuille de temps shop</th><th title="Reçoit la feuille de temps par courriel quand elle est soumise.">Responsable feuille de temps</th><th title="Donne accès à Exacto-Chantier (plans, documents, déficiences) avec le téléphone et le mot de passe Exacto-Punch. Pour les contremaîtres.">Chantier</th><th>Actions</th>`;
+const COMPTES_COLSPAN = 15;
 
 function comptesRowHtml(e, isTermine) {
   const taches = tachesForTitre(e.titre);
@@ -4317,10 +4317,15 @@ async function loadHoursCfg() { try { hbCfg = (await hoursApi('cfgList')).cfg ||
 function hbCfgCells(e) {
   const c = hbCfg[e.id] || { timesheet: false, approverEmployeeId: '' };
   const opts = '<option value="">— Responsable —</option>' + employeesCache.filter(x => x.statut === 'Actif' && x.id !== e.id).map(x => `<option value="${x.id}" ${x.id === c.approverEmployeeId ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
-  return `<td style="text-align:center;"><input type="checkbox" class="inp-timesheet" ${c.timesheet ? 'checked' : ''}></td><td><select class="sel-ts-approver" ${c.timesheet ? '' : 'disabled'}>${opts}</select></td><td style="text-align:center;"><input type="checkbox" class="inp-chantier" ${c.chantier ? 'checked' : ''}></td>`;
+  return `<td style="text-align:center;"><input type="checkbox" class="inp-timesheet" ${c.timesheet ? 'checked' : ''}></td><td style="text-align:center;"><input type="checkbox" class="inp-shopts" ${c.shopTs ? 'checked' : ''}></td><td><select class="sel-ts-approver" ${c.timesheet ? '' : 'disabled'}>${opts}</select></td><td style="text-align:center;"><input type="checkbox" class="inp-chantier" ${c.chantier ? 'checked' : ''}></td>`;
 }
 function hbWireCfg(tr, empId) {
   const chk = tr.querySelector('.inp-timesheet'), sel = tr.querySelector('.sel-ts-approver'), chc = tr.querySelector('.inp-chantier');
+  const shc = tr.querySelector('.inp-shopts');
+  if (shc) shc.addEventListener('change', async () => {
+    try { await hoursApi('shopTsSave', { employeeId: empId, shopTs: shc.checked }); hbCfg[empId] = Object.assign({}, hbCfg[empId], { shopTs: shc.checked }); showToast('Enregistré ✔'); }
+    catch (e) { showToast('Erreur : ' + e.message); shc.checked = !shc.checked; }
+  });
   if (chc) chc.addEventListener('change', async () => {
     try { await hoursApi('chantierSave', { employeeId: empId, chantier: chc.checked }); hbCfg[empId] = Object.assign(hbCfg[empId] || { timesheet: false, approverEmployeeId: '' }, { chantier: chc.checked }); showToast('Enregistré ✔'); }
     catch (e) { showToast('Erreur : ' + e.message); chc.checked = !chc.checked; }
