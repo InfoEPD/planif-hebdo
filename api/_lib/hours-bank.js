@@ -157,8 +157,9 @@ const ADMIN = {
   // ----- Configuration par employé (Comptes employés) -----
   async cfgList() {
     await q('ALTER TABLE hb_cfg ADD COLUMN IF NOT EXISTS chantier BOOLEAN NOT NULL DEFAULT FALSE');
-    const rows = await q('SELECT employee_id, timesheet, approver_employee_id, chantier FROM hb_cfg');
-    const cfg = {}; rows.forEach(r => { cfg[String(r.employee_id)] = { timesheet: !!r.timesheet, approverEmployeeId: r.approver_employee_id || '', chantier: !!r.chantier }; });
+    await q('ALTER TABLE hb_cfg ADD COLUMN IF NOT EXISTS shop_ts BOOLEAN NOT NULL DEFAULT FALSE');
+    const rows = await q('SELECT employee_id, timesheet, approver_employee_id, chantier, shop_ts FROM hb_cfg');
+    const cfg = {}; rows.forEach(r => { cfg[String(r.employee_id)] = { timesheet: !!r.timesheet, approverEmployeeId: r.approver_employee_id || '', chantier: !!r.chantier, shopTs: !!r.shop_ts }; });
     return { cfg };
   },
   async cfgSave(b, ctx) {
@@ -172,6 +173,15 @@ const ADMIN = {
     await q(`INSERT INTO hb_cfg (employee_id, timesheet, approver_employee_id, updated_by) VALUES ($1,$2,$3,$4)
       ON CONFLICT (employee_id) DO UPDATE SET timesheet = EXCLUDED.timesheet, approver_employee_id = EXCLUDED.approver_employee_id, updated_by = EXCLUDED.updated_by, updated_at = now()`,
       [b.employeeId, !!b.timesheet, appr, ctx.email || '']);
+    return { ok: true };
+  },
+
+  /** Case « Feuille de temps shop » : l'employé apparaît dans Exacto-Shop (Feuilles de temps shop). */
+  async shopTsSave(b, ctx) {
+    if (!isId(b.employeeId)) fail(400, 'Employé invalide.');
+    await q('ALTER TABLE hb_cfg ADD COLUMN IF NOT EXISTS shop_ts BOOLEAN NOT NULL DEFAULT FALSE');
+    await q(`INSERT INTO hb_cfg (employee_id, shop_ts, updated_by) VALUES ($1,$2,$3)
+      ON CONFLICT (employee_id) DO UPDATE SET shop_ts = EXCLUDED.shop_ts, updated_by = EXCLUDED.updated_by, updated_at = now()`, [b.employeeId, !!b.shopTs, (ctx && ctx.email) || '']);
     return { ok: true };
   },
 
@@ -342,7 +352,7 @@ async function handle(role, action, body, ctx) {
     const rows = await q(`SELECT id::text AS id FROM fin_employee WHERE lower(trim(coalesce(company,''))) = 'epd' AND lower(trim(coalesce(department,''))) = 'chantier'`);
     const ok = new Set(rows.map(r => r.id));
     const only = id => { if (!ok.has(String(id))) fail(403, 'Réservé aux employés de chantier.'); };
-    if (['cfgSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
+    if (['cfgSave', 'shopTsSave', 'tsReopen'].includes(action)) fail(403, "Réservé à l'administrateur principal.");
     if (action === 'tsList') return { sheets: [] };
     if (action === 'cfgList') {   // seule l'information « Chantier » est visible
       const full = (await fn(b, ctx)).cfg || {}, cfg = {};
