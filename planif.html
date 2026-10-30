@@ -310,11 +310,56 @@
     #weeklabel { font-size:10.5px; min-width:0; flex:1; }
 
     /* Ne garder que la navigation de semaine en semaine dans l'entête */
-    #btn-duplicate, #btn-export, #btn-clear-week, #btn-suggest, #btn-suggest-stability, #btn-send-schedule, #btn-send-changes, #btn-view-toggle, .btn-col, #actions-menu { display:none; }
+    /* Menu Actions mobile : seulement Vue par employé, Envoyer la semaine, Envoyer brouillon, Envoyer modifications, Absences */
+    #btn-duplicate, #btn-export, #btn-clear-week, #btn-suggest, #btn-suggest-stability, #btn-history, #btn-equip, #btn-config { display:none; }
+    #weeknav-right { width:auto; }
+    #actions-menu > summary { font-size:10px; padding:3px 7px; }
+    #weeknav-buttons { flex-direction:column; align-items:stretch; gap:4px; padding:8px; min-width:200px; right:0; left:auto; }
+    #weeknav-buttons .btn-col { display:flex; flex-direction:column; gap:4px; }
+    #weeknav-buttons .btn-col:empty { display:none; }
+    #weeknav-buttons button { font-size:13px; padding:9px 10px; text-align:left; white-space:normal; }
+    body.ro #actions-menu { display:none !important; }
+    #send-schedule-note { font-size:10px; }
     #clerk-user-name { display:none; }
 
     /* Masquer complètement le menu d'employés à gauche */
     #sidebar { display:none; }
+
+    /* Vue mobile par jour / chantier : remplace le tableau */
+    #grid-wrap { display:none !important; }
+    #m-wrap { display:flex; flex-direction:column; flex:1; min-width:0; overflow:auto; background:var(--bg); }
+    #m-wrap.hidden { display:none; }
+    #m-search { margin:6px 8px 0; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--panel); color:var(--text); width:calc(100% - 16px); box-sizing:border-box; }
+    #m-days { display:flex; gap:4px; padding:6px 8px; position:sticky; top:0; z-index:5; background:var(--bg); overflow-x:auto; }
+    .m-day { flex:1; min-width:44px; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:8px; padding:5px 2px; text-align:center; cursor:pointer; font-size:10px; line-height:1.25; }
+    .m-day b { display:block; font-size:15px; }
+    .m-day .m-cnt { display:block; font-size:9.5px; color:var(--text-secondary); }
+    .m-day.sel { border-color:var(--accent); background:var(--accent); color:#fff; }
+    .m-day.sel .m-cnt { color:#fff; }
+    .m-day.today:not(.sel) { border-color:var(--accent); }
+    .m-day.hol { opacity:.6; }
+    .m-title { padding:2px 10px 4px; font-size:12px; font-weight:700; color:var(--text); }
+    .m-card { margin:0 8px 8px; border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:8px; background:var(--panel); padding:8px 10px; }
+    .m-card.under { border-left-color:var(--danger); }
+    .m-card-h { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+    .m-name { font-size:13.5px; font-weight:700; line-height:1.25; }
+    .m-num { font-size:10.5px; color:var(--text-secondary); font-weight:500; }
+    .m-hrs { font-size:11px; font-weight:700; white-space:nowrap; color:var(--accent); }
+    .m-meta { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+    .m-count { font-size:11px; font-weight:700; margin-top:4px; }
+    .m-count.bad { color:var(--danger); }
+    .m-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+    #m-wrap .chip { font-size:12px; padding:3px 8px; gap:4px; }
+    #m-wrap .chip.m-lead { font-weight:700; }
+    .m-empty { padding:16px; text-align:center; font-size:12px; color:var(--text-secondary); }
+    .m-hol { margin:0 8px 8px; padding:6px 10px; border-radius:8px; background:var(--panel-alt); font-size:12px; font-weight:600; text-align:center; }
+    .m-none { margin:0 8px 12px; font-size:11px; color:var(--text-secondary); }
+    .m-none summary { cursor:pointer; padding:4px 2px; }
+
+    /* Vue par employé sur mobile : défilement horizontal */
+    #emp-view-search-bar input { width:100%; box-sizing:border-box; }
+    #btn-emp-view-export { display:none; }
+    #emp-grid-table { min-width:520px; }
 
     /* Grille : masquer Chargé de projets et Commentaire, réduire les colonnes pour tout voir sans défiler */
     table.grid { min-width:0; }
@@ -342,6 +387,7 @@
     /* Pas de case à cocher "Férié" sur mobile (lecture seule) */
     .holiday-toggle { display:none; }
   }
+  #m-wrap { display:none; }
 </style>
 </head>
 <body>
@@ -449,6 +495,11 @@
         <summary>Projets terminés (<span id="finished-count">0</span>)</summary>
         <div id="finished-list"></div>
       </details>
+    </div>
+    <div id="m-wrap" class="hidden">
+      <input type="text" id="m-search" placeholder="Rechercher un chantier ou un employé…">
+      <div id="m-days"></div>
+      <div id="m-list"></div>
     </div>
     <div id="emp-view-wrap" class="hidden">
       <div id="emp-view-search-bar">
@@ -653,6 +704,7 @@ async function planifApi(action, payload) {
     throw new Error('Non authentifié auprès du serveur' + (json && json.error ? (' — ' + json.error) : '') + '.');
   }
   if (!json) throw new Error('Réponse invalide du serveur (HTTP ' + res.status + ')');
+  if (res.status === 403 && /lecture seule/i.test(json.error || '')) document.body.classList.add('ro');
   if (!res.ok) throw new Error(json.error || ('Erreur serveur (HTTP ' + res.status + ')'));
   return json;
 }
@@ -712,6 +764,7 @@ let state = {
   liftByEmployee: {}, // employeeId -> nombre d'équipements de levage actifs à son nom
   liftMarquesByEmployee: {}, // employeeId -> [marque, ...] des équipements de levage actifs à son nom
   weekOffset: 0,
+  mobileDay: null,
   empFilter: '',
   projFilter: '',
   empViewFilter: '',
@@ -1622,6 +1675,80 @@ function computeConflicts(dates) {
   return perEmpDate;
 }
 
+// ===== Vue mobile : horaire par jour, puis par chantier (lecture; le tableau reste pour l'ordinateur) =====
+function renderMobileDays(gridDates, gridDateStrs, activeProjects) {
+  const daysEl = document.getElementById('m-days');
+  const listEl = document.getElementById('m-list');
+  if (!daysEl || !listEl) return;
+  if (!gridDateStrs.includes(state.mobileDay)) {
+    const t = todayStr();
+    state.mobileDay = gridDateStrs.includes(t) ? t : gridDateStrs[0];
+  }
+  const sel = state.mobileDay;
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const q = (state.projFilter || '').trim().toLowerCase();
+  const countFor = ds => {
+    const ids = new Set();
+    activeProjects.forEach(p => { const c = state.cells[`${p.id}|${ds}`]; if (c) c.employees.forEach(e => ids.add(e.id)); });
+    return ids.size;
+  };
+  daysEl.innerHTML = gridDates.map((d, i) => {
+    const ds = gridDateStrs[i];
+    const cls = ['m-day', ds === sel ? 'sel' : '', isTodayDay(ds) ? 'today' : '', isHoliday(ds) ? 'hol' : ''].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-ds="${ds}">${DAY_NAMES[i].slice(0,3)}<b>${d.getDate()}</b><span class="m-cnt">${isHoliday(ds) ? 'Férié' : countFor(ds) + ' emp.'}</span></button>`;
+  }).join('');
+  daysEl.querySelectorAll('.m-day').forEach(b => b.addEventListener('click', () => { state.mobileDay = b.dataset.ds; renderMobileDays(gridDates, gridDateStrs, activeProjects); }));
+
+  const idx = gridDateStrs.indexOf(sel);
+  const dObj = gridDates[idx];
+  let html = `<div class="m-title">${DAY_NAMES[idx]} ${dObj.getDate()} ${MONTHS[dObj.getMonth()]}${isTodayDay(sel) ? " · Aujourd'hui" : ''}</div>`;
+  if (isHoliday(sel)) html += `<div class="m-hol">Jour férié</div>`;
+  const weekKey = gridDateStrs[0];
+  const withTeam = [], without = [];
+  activeProjects.forEach(p => {
+    const cell = state.cells[`${p.id}|${sel}`];
+    const emps = cell ? cell.employees : [];
+    const matchProj = !q || projectMatchesFilter(p, q);
+    const matchEmp = q && emps.some(e => (e.name || '').toLowerCase().includes(q));
+    if (!(matchProj || matchEmp)) return;
+    (emps.length ? withTeam : without).push(p);
+  });
+  withTeam.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  withTeam.forEach(p => {
+    const cell = state.cells[`${p.id}|${sel}`];
+    const emps = [...cell.employees].sort((a, b) => {
+      const ea = state.employees.find(x => x.id === a.id), eb = state.employees.find(x => x.id === b.id);
+      const la = isLeadTitre(ea && ea.titre), lb = isLeadTitre(eb && eb.titre);
+      if (la !== lb) return la ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const hrs = projectHours(p);
+    const req = requiredCountForWeek(p, weekKey);
+    const under = req > 0 && !isHoliday(sel) && emps.length < req;
+    const chips = emps.map(emp => {
+      const ed = state.employees.find(x => x.id === emp.id) || (state.inactiveEmployees || []).find(x => x.id === emp.id);
+      const cat = ed ? ed.cat : 'autre';
+      const lead = isLeadTitre(ed && ed.titre);
+      const abs = isAbsent(emp.id, sel);
+      const sd = sameDayAssignments(emp.id, sel);
+      const ord = sd.length > 1 ? sd.findIndex(x => x.projectId === p.id) + 1 : 0;
+      const conf = sd.length > 1;
+      return `<span class="chip cat-${cat}${conf ? ' conflict' : ''}${lead ? ' m-lead' : ''}">${ord ? `<b class="chip-ordinal">${ord}</b>` : ''}${abs ? '🚫 ' : ''}${esc(emp.name)}</span>`;
+    }).join('');
+    html += `<div class="m-card${under ? ' under' : ''}">
+      <div class="m-card-h"><div class="m-name">${esc(p.name)}${p.numero ? ` <span class="m-num">#${esc(p.numero)}</span>` : ''}</div><div class="m-hrs">${esc(hrs.start)} – ${esc(hrs.end)}</div></div>
+      ${p.adresse ? `<div class="m-meta">${esc(p.adresse)}</div>` : ''}
+      ${p.charge ? `<div class="m-meta">Chargé de projets : ${esc(p.charge)}</div>` : ''}
+      <div class="m-count${under ? ' bad' : ''}">${emps.length}${req > 0 ? ' / ' + req : ''} employé${emps.length > 1 ? 's' : ''}${under ? ' · effectif insuffisant' : ''}</div>
+      <div class="m-chips">${chips}</div></div>`;
+  });
+  if (!withTeam.length) html += `<div class="m-empty">Aucun chantier planifié ce jour.</div>`;
+  if (without.length) {
+    html += `<details class="m-none"><summary>Chantiers sans équipe ce jour (${without.length})</summary>${without.map(p => `<div>${esc(p.name)}${p.numero ? ' #' + esc(p.numero) : ''}</div>`).join('')}</details>`;
+  }
+  listEl.innerHTML = html;
+}
+
 function render() {
   const dates = currentWeekDates();
   const dateStrs = dates.map(iso);
@@ -1648,11 +1775,14 @@ function render() {
   document.getElementById('sidebar').classList.toggle('hidden', state.viewMode === 'employee');
   document.getElementById('grid-wrap').classList.toggle('hidden', state.viewMode === 'employee');
   document.getElementById('emp-view-wrap').classList.toggle('hidden', state.viewMode !== 'employee');
+  document.getElementById('m-wrap').classList.toggle('hidden', state.viewMode === 'employee');
   document.getElementById('btn-view-toggle').textContent = state.viewMode === 'employee' ? '📋 Vue par semaine' : '👤 Vue par employé';
   if (state.viewMode === 'employee') {
     renderEmployeeView(dates, dateStrs);
     return;
   }
+
+  renderMobileDays(gridDates, gridDateStrs, activeProjects);
 
   // Sidebar
   const filter = state.empFilter.trim().toLowerCase();
@@ -3873,6 +4003,7 @@ document.querySelectorAll('.comp-btn').forEach(btn => {
   });
 });
 document.getElementById('proj-search').addEventListener('input', (e) => { state.projFilter = e.target.value; render(); });
+document.getElementById('m-search').addEventListener('input', (e) => { state.projFilter = e.target.value; render(); });
 document.getElementById('emp-view-search').addEventListener('input', (e) => { state.empViewFilter = e.target.value; render(); });
 document.getElementById('btn-view-toggle').addEventListener('click', () => { state.viewMode = state.viewMode === 'employee' ? 'week' : 'employee'; render(); });
 document.getElementById('btn-emp-view-export').addEventListener('click', exportEmployeeViewPDF);
