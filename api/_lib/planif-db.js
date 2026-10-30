@@ -345,9 +345,36 @@ async function planToday(b) {
 }
 async function allDistancesAction() { return { map: await allDistances() }; }
 
+/** Statistiques Exacto Heures : poinçons (board 18427410930) entre deux dates + tables de référence. Lecture seule. */
+async function punchStats(b) {
+  const isD = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const to = isD(b.to) ? b.to : new Date().toISOString().slice(0, 10);
+  const from = isD(b.from) ? b.from : new Date(Date.now() - 548 * 864e5).toISOString().slice(0, 10);
+  const rows = await q(`SELECT id, cv FROM pb_item WHERE board = $1 AND cv->'date_mm6d1p6e'->>'text' BETWEEN $2 AND $3`, ['18427410930', from, to]);
+  const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : 0; };
+  const punches = rows.map(r => {
+    const cv = jobj(r.cv), t = k => (cv[k] && cv[k].text) || '', id0 = k => ((cv[k] && cv[k].ids) || [])[0] || '';
+    const hrs = t('numeric_mm6d8c9m') !== '' ? num(t('numeric_mm6d8c9m')) : num(t('numeric_mm6d12a7'));
+    const km = t('numeric_mm6dxafw') !== '' ? num(t('numeric_mm6dxafw')) : num(t('numeric_mm6d4hvv'));
+    return { id: String(r.id), e: String(id0('board_relation_mm6d1zaz')), p: String(id0('board_relation_mm6ddgy')), d: t('date_mm6d1p6e'), h: hrs, o15: num(t('numeric_mm6k81gj')), o2: num(t('numeric_mm6kefh3')), km, t: t('text_mm6enx2b'), s: t('color_mm6dxpt7') || 'En attente', hd: t('hour_mm6dfaha'), hf: t('hour_mm6dfqfg') };
+  });
+  const [emps, projs, tasks] = await Promise.all([
+    q('SELECT id, name, department, status FROM fin_employee'),
+    q('SELECT id, name, number, cp_ids FROM fin_project'),
+    q(`SELECT name, cv->'boolean_mm6e9yfa'->>'text' AS ccq FROM pb_item WHERE board = $1`, ['18427580795']).catch(() => [])
+  ]);
+  const nameById = new Map(emps.map(r => [String(r.id), r.name]));
+  return {
+    from, to, punches,
+    employees: emps.map(r => ({ id: String(r.id), name: r.name, chantier: /^chantier$/i.test(String(r.department || '').trim()), status: r.status })),
+    projects: projs.map(r => ({ id: String(r.id), name: r.name, number: r.number || '', cp: (Array.isArray(r.cp_ids) ? r.cp_ids : []).map(i => nameById.get(String(i))).filter(Boolean) })),
+    tasks: tasks.map(r => ({ name: r.name, ccq: r.ccq === 'v' }))
+  };
+}
+
 const ab = () => require('./absence-db');
-const READ = new Set(['equipList', 'absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
-const ACTIONS = { planToday, allDistances: allDistancesAction, load, cellCreate, cellUpdate, cellAssignedAt, cellDelete, projectWeekSet, projectLabor, projectHours, holidaySet, settingsSave, absenceSave, absenceList, absenceDelete,
+const READ = new Set(['punchStats', 'equipList', 'absReqList', 'absStats', 'absSettingsGet', 'planToday', 'allDistances', 'load', 'absenceList', 'historyList', 'sendRecordGet', 'draftCandidates']);
+const ACTIONS = { punchStats, planToday, allDistances: allDistancesAction, load, cellCreate, cellUpdate, cellAssignedAt, cellDelete, projectWeekSet, projectLabor, projectHours, holidaySet, settingsSave, absenceSave, absenceList, absenceDelete,
   equipList, equipAssign, equipSave, equipDelete, historyAdd, historyList, sendRecordGet, sendRecordSave, draftCandidates, distancesRefresh,
   absReqList: b => ab().adminList(b), absReqCreate: (b, c) => ab().adminCreate(b, c), absReqDecide: (b, c) => ab().adminDecide(b, c), absReqDelete: b => ab().adminDelete(b),
   absStats: b => ab().adminStats(b), absSettingsGet: () => ab().settingsGet(), absSettingsSave: b => ab().settingsSave(b) };
