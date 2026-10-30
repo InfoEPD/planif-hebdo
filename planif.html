@@ -387,7 +387,7 @@
     /* Pas de case à cocher "Férié" sur mobile (lecture seule) */
     .holiday-toggle { display:none; }
   }
-  #m-wrap { display:none; }
+  @media (min-width: 769px) { #m-wrap { display:none !important; } }
 </style>
 </head>
 <body>
