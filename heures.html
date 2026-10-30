@@ -218,6 +218,7 @@
 </style>
 <!-- Export PDF (Vue par employé / Vue par projet) — même bibliothèques que index.html (planification) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="/stats.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
@@ -246,6 +247,7 @@
     <button data-tab="semaine">Vue de la semaine</button>
     <button data-tab="parempl">Vue par employé</button>
     <button data-tab="parprojet">Vue par projet</button>
+    <button data-tab="stats">Statistiques</button>
     <button data-tab="comptes" style="margin-left:auto;">Comptes employés</button>
     <button data-tab="absences">Absences</button>
     <button data-tab="mats" id="tabbtn-mats" style="display:none;">Ma feuille de temps</button>
@@ -257,6 +259,8 @@
     <button data-tab="confidentialite">Confidentialité</button>
   </nav>
   <main>
+
+    <div class="tab-panel" id="tab-stats"></div>
 
     <div class="tab-panel" id="tab-banques">
       <div class="weeknav" style="margin-bottom:8px;">
@@ -4433,6 +4437,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     if (btn.dataset.tab === 'comptes' && !employeesCache.length) loadComptes();
     if (btn.dataset.tab === 'absences') loadAbsencesAdmin();
     if (btn.dataset.tab === 'mats') loadMaFeuille();
+    if (btn.dataset.tab === 'stats') loadStats();
     if (btn.dataset.tab === 'banques') loadBanques();
     if (btn.dataset.tab === 'feuilles') loadFeuilles();
     if (btn.dataset.tab === 'dashboard') loadDashboard();
